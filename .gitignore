@@ -9,3 +9,10 @@ dist/
 data/pyinstaller/
 data/logs/
 keys.json
+
+# runtime artifacts
+__pycache__/
+player_log.txt
+data/cache/
+data/assistant/
+*.tmp

@@ -11,10 +11,7 @@ os.environ["WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS"] = (
     "--ignore-gpu-blocklist "
     "--enable-gpu-rasterization "
     "--enable-zero-copy "
-    "--enable-hardware-overlays "
-    "--disable-features=LayoutNG "
-    "--disable-gpu-vsync "
-    "--enable-features=WebAssembly"
+    "--enable-hardware-overlays"
 )
 
 # ═══════════════════════════════════════════════════════
@@ -104,6 +101,9 @@ try:
     import nohomo_merger_core
 except Exception as _merger_import_error:
     nohomo_merger_core = None
+import bridge
+import metadata
+import assistant as assistant_module
 
 # Prefer a stable port so Watch Together / TV links and firewall rules do not change every restart.
 # If 8765 is occupied, fall back to a random free port.
@@ -122,7 +122,7 @@ def find_free_port(preferred=8765):
     s.close()
     return port
 
-PORT = find_free_port(8765)
+PORT = find_free_port(int(os.environ.get("MODERNPLAYER_PORT", "8765") or 8765))
 
 def get_asset_path(relative_path):
     """ Returns absolute path to resource, taking PyInstaller bundling into account """
@@ -407,6 +407,7 @@ def log_to_file(message):
 # Initialize Bottle app
 app = bottle.Bottle()
 API_INSTANCE = None
+ASSISTANT = None
 WATCH_ROOMS = {}
 TV_ROOMS = {}
 TV_STREAMS = {}
@@ -415,6 +416,10 @@ LIVE_STREAMS = {}
 
 @app.hook('after_request')
 def disable_cache():
+    path = bottle.request.path or ''
+    if path.startswith('/static/') and bottle.request.query.get('v'):
+        bottle.response.headers['Cache-Control'] = 'public, max-age=31536000, immutable'
+        return
     bottle.response.headers['Cache-Control'] = 'no-store, no-cache, must-revalidate, max-age=0'
     bottle.response.headers['Pragma'] = 'no-cache'
     bottle.response.headers['Expires'] = '0'
@@ -431,6 +436,8 @@ def dub_loading():
     episode = bottle.request.query.get('episode', '0')
     safe_target = str(target).replace('&', '&amp;').replace('<', '&lt;').replace('>', '&gt;').replace('"', '&quot;')
     safe_title = str(title).replace('&', '&amp;').replace('<', '&lt;').replace('>', '&gt;')
+    season = ''.join(ch for ch in str(season) if ch.isdigit()) or '1'
+    episode = ''.join(ch for ch in str(episode) if ch.isdigit()) or '0'
     return f"""
 <!doctype html>
 <html lang='en'>
@@ -562,6 +569,79 @@ def api_health_route():
     except Exception as e:
         return json.dumps({"status": "error", "message": str(e)}, ensure_ascii=False)
 
+class _BridgeHelpers:
+    """Glue that bridge.py needs from this module."""
+    metadata = metadata
+    PORT = PORT
+    DEFAULT_LIBRARY_DIR = DEFAULT_LIBRARY_DIR
+    USER_DATA_DIR = USER_DATA_DIR
+
+    @staticmethod
+    def api():
+        return API_INSTANCE
+
+    @staticmethod
+    def assistant():
+        return ASSISTANT
+
+    @staticmethod
+    def log(msg):
+        log_to_file(msg)
+
+    @staticmethod
+    def get_keys_file():
+        return get_keys_file()
+
+    @staticmethod
+    def get_ffmpeg_path():
+        return get_ffmpeg_path()
+
+    @staticmethod
+    def get_workflow_dir():
+        return get_workflow_dir()
+
+    @staticmethod
+    def merger_available():
+        return nohomo_merger_core is not None
+
+    @staticmethod
+    def merger_config():
+        if not nohomo_merger_core:
+            return {}
+        cfg = nohomo_merger_core.load_config(get_workflow_dir())
+        return {k: v for k, v in cfg.items() if not k.startswith('_')}
+
+    @staticmethod
+    def merger_config_update(changes):
+        import json as _json
+        path = os.path.join(get_workflow_dir(), nohomo_merger_core.CONFIG_FILE if nohomo_merger_core else 'nohomo_config.json')
+        cfg = {}
+        try:
+            with open(path, 'r', encoding='utf-8') as f:
+                cfg = _json.load(f) or {}
+        except Exception:
+            cfg = {}
+        cfg.update(changes or {})
+        with open(path, 'w', encoding='utf-8') as f:
+            _json.dump(cfg, f, indent=4, ensure_ascii=False)
+        return cfg
+
+    @staticmethod
+    def load_databases():
+        import json as _json
+        raw = _json.loads(API_INSTANCE.load_all_databases()) if API_INSTANCE else {}
+        out = {}
+        for k, v in raw.items():
+            try:
+                out[k] = _json.loads(v) if isinstance(v, str) else v
+            except Exception:
+                out[k] = None
+        return out
+
+
+bridge.install(app, _BridgeHelpers)
+
+
 def get_lan_ip():
     ips = get_all_lan_ips()
     for ip in ips:
@@ -615,12 +695,12 @@ def get_all_lan_ips():
 
 
 def make_room_code():
-    import random, string
-    for _ in range(20):
+    import random, string, time as _time
+    for _ in range(50):
         code = ''.join(random.choice(string.digits) for _ in range(6))
-        if code not in WATCH_ROOMS:
+        if code not in WATCH_ROOMS and code not in TV_ROOMS and code not in TV_STREAMS and code not in LIVE_STREAMS:
             return code
-    return str(int(time.time()))[-6:]
+    return str(int(_time.time()))[-6:]
 
 
 @app.post('/api/watch/create')
@@ -1203,9 +1283,9 @@ setInterval(tick,500); tick();
 """
 
 
-class PlayerAPI:
+class PlayerAPI(bridge.ApiExtensions):
     def __init__(self):
-        self.window = None
+        self._window = None
         self._ai_franchise_cache = {}
         self._ai_franchise_request_times = []
         self._media_tasks = {}
@@ -2016,466 +2096,15 @@ class PlayerAPI:
             return None, {"status": "error", "message": str(e)}
 
     def ai_assistant_chat(self, user_message, context_json="{}"):
-        """Compact in-app :3 assistant. It explains the app and returns safe UI actions.
-        It can suggest downloader/merger workflows, but does not automate protected-site bypasses.
-        """
+        """Compatibility shim: the assistant now lives in assistant.py (tool-calling agent)."""
         import json
-        import urllib.request
-        user_message = str(user_message or "").strip()
-        if not user_message:
-            return json.dumps({"status": "success", "answer": "Ask me what you want to do: find RAW, prepare DUB, merge episodes, or fix playback.", "actions": []}, ensure_ascii=False)
         try:
-            context = json.loads(context_json or "{}")
-            if not isinstance(context, dict):
-                context = {}
+            ctx = json.loads(context_json or "{}")
         except Exception:
-            context = {}
-
-        openai_key = os.environ.get("OPENAI_API_KEY", "")
-        tavily_key = os.environ.get("TAVILY_API_KEY", "")
-        keys_file = get_keys_file()
-        if os.path.exists(keys_file):
-            try:
-                with open(keys_file, "r", encoding="utf-8") as f:
-                    keys = json.load(f)
-                    openai_key = openai_key or keys.get("OPENAI_API_KEY", "")
-                    tavily_key = tavily_key or keys.get("TAVILY_API_KEY", "")
-            except Exception:
-                pass
-
-        # Local command fallback works without API keys and also seeds useful deterministic actions.
-        lower = user_message.lower()
-        local_actions = []
-        known_titles = {
-            "kill blue": "Kill Blue",
-            "kill ao": "Kill Ao",
-            "убивая юность": "Kill Blue",
-            "bleach": "Bleach",
-            "блич": "Bleach",
-            "fate": "Fate",
-            "фейт": "Fate",
-            "prison school": "Prison School",
-            "школа тюрьма": "Prison School"
-        }
-        detected_title = ""
-        for k, v in known_titles.items():
-            if k in lower:
-                detected_title = v
-                break
-        ep_match = re.search(r'(?:episode|ep|сер(?:ия|ии|ию)?|s\d{1,2}e)\s*0*(\d{1,3})|\b(\d{1,3})\s*[- ]?\s*(?:st|nd|rd|th)?\s*(?:episode|ep|сер(?:ия|ии|ию)?)', lower)
-        detected_ep = ""
-        detected_season = 1
-        season_match = re.search(r'(?:season|s|сезон)\s*0*(\d{1,2})', lower)
-        if season_match:
-            try:
-                detected_season = int(season_match.group(1))
-            except Exception:
-                detected_season = 1
-        if ep_match:
-            detected_ep = ep_match.group(1) or ep_match.group(2) or ""
-        downloader_query = detected_title
-        if detected_title and detected_ep:
-            downloader_query = f"{detected_title} S{detected_season:02d}E{int(detected_ep):02d}"
-        elif not detected_title and any(x in lower for x in ["raw", "nyaa", "download", "скач", "торрент"]):
-            # Use the raw message as a search query if no known title was detected.
-            downloader_query = user_message.strip()
-
-        # Movie/show RAW requests should not be sent blindly to Nyaa.
-        # Use a movie/show provider (Prowlarr) instead and present multiple practical candidates.
-        raw_download_intent = any(x in lower for x in [
-            "raw", "best raw", "download raw", "скачай raw", "лучший raw", "best quality download",
-            "get best", "best quality", "download", "скачай", "качай"
-        ])
-        identification_intent = (
-            any(x in lower for x in [
-                "what is this", "what's this", "how is this", "name of", "identify",
-                "как называется", "что за фильм", "название фильма", "найди название", "определи фильм"
-            ])
-            # Phrases like "film called Eyes Wide Shut" are not identification if user also asks for RAW/download.
-            or ("called" in lower and not raw_download_intent)
-        )
-        movie_raw_request = (
-            not identification_intent
-            and not detected_title
-            and raw_download_intent
-            and any(x in lower for x in ["movie", "film", "фильм", "raw", "quality"])
-        )
-        if movie_raw_request:
-            clean_movie_query = self._normalize_movie_query(user_message)
-            try:
-                pdata = json.loads(self.movie_raw_search(clean_movie_query) or '{}')
-            except Exception as e:
-                pdata = {"status": "error", "message": str(e), "results": []}
-            results = pdata.get('results') or []
-
-            def unique_by_title(items):
-                seen = set(); out = []
-                for r in items:
-                    key = (r.get('title','').lower(), r.get('indexer','').lower(), round(float(r.get('size_gb') or 0), 2))
-                    if key in seen: continue
-                    seen.add(key); out.append(r)
-                return out
-
-            def pick_best(items, max_size=None, min_size=None, require_1080=False):
-                pool = []
-                for r in items:
-                    size = float(r.get('size_gb') or 0)
-                    title_l = (r.get('title') or '').lower()
-                    if max_size is not None and size > max_size: continue
-                    if min_size is not None and size < min_size: continue
-                    if require_1080 and not any(x in title_l for x in ['1080', '2160', '4k', 'uhd']): continue
-                    pool.append(r)
-                return sorted(pool, key=lambda x: x.get('score', 0), reverse=True)[0] if pool else None
-
-            if results:
-                results = unique_by_title(results)
-
-                def title_l(r):
-                    return (r.get('title') or '').lower()
-
-                def size_of(r):
-                    try:
-                        return float(r.get('size_gb') or 0)
-                    except Exception:
-                        return 0.0
-
-                def seeders_of(r):
-                    try:
-                        return int(r.get('seeders') or 0)
-                    except Exception:
-                        return 0
-
-                def has_2160(r):
-                    t = title_l(r)
-                    return '2160' in t or '4k' in t or 'uhd' in t
-
-                def has_1080(r):
-                    return '1080' in title_l(r)
-
-                def is_remux(r):
-                    return 'remux' in title_l(r)
-
-                def is_bluray(r):
-                    t = title_l(r)
-                    return 'bluray' in t or 'blu-ray' in t or 'bdrip' in t or 'brrip' in t
-
-                def is_web(r):
-                    t = title_l(r)
-                    return 'web-dl' in t or 'webrip' in t
-
-                def is_tiny_group(r):
-                    t = title_l(r)
-                    return 'yify' in t or 'yts' in t
-
-                def unique_add(candidates, label, reason, item):
-                    if not item:
-                        return
-                    key = (item.get('title', '').lower(), round(size_of(item), 2))
-                    if any((c['item'].get('title', '').lower(), round(size_of(c['item']), 2)) == key for c in candidates):
-                        return
-                    candidates.append({'label': label, 'reason': reason, 'item': item})
-
-                def best_by(pool, fn):
-                    pool = [r for r in pool if r]
-                    if not pool:
-                        return None
-                    return sorted(pool, key=fn, reverse=True)[0]
-
-                # Category-specific scoring. This is intentionally not one universal score:
-                # users need practical choices, not only a 90GB archive remux.
-                def balance_score(r):
-                    size = size_of(r)
-                    score = seeders_of(r) * 1.2
-                    if has_1080(r): score += 120
-                    if has_2160(r): score += 80  # 4K can be good, but balance favors sane size.
-                    if is_bluray(r): score += 80
-                    if is_web(r): score += 45
-                    if 'x265' in title_l(r) or 'hevc' in title_l(r): score += 35
-                    # Sweet spot for normal viewing.
-                    if 4 <= size <= 16: score += 110
-                    elif 2 <= size < 4: score += 55
-                    elif 16 < size <= 25: score += 25
-                    elif size > 35: score -= 120
-                    if is_remux(r): score -= 80
-                    if is_tiny_group(r): score -= 90
-                    return score
-
-                def best_1080_score(r):
-                    size = size_of(r)
-                    score = seeders_of(r)
-                    if has_1080(r): score += 200
-                    else: score -= 300
-                    if is_bluray(r): score += 120
-                    if is_remux(r): score += 60
-                    if 'criterion' in title_l(r): score += 80
-                    if 'x265' in title_l(r) or 'hevc' in title_l(r): score += 45
-                    if 6 <= size <= 25: score += 85
-                    elif size > 35: score -= 80
-                    if is_tiny_group(r): score -= 160
-                    return score
-
-                def practical_4k_score(r):
-                    size = size_of(r)
-                    score = seeders_of(r)
-                    if has_2160(r): score += 240
-                    else: score -= 400
-                    if is_bluray(r): score += 90
-                    if 'hdr' in title_l(r) or 'dv' in title_l(r): score += 70
-                    if 'x265' in title_l(r) or 'hevc' in title_l(r): score += 50
-                    # Practical 4K: not tiny, not absurd.
-                    if 18 <= size <= 45: score += 130
-                    elif 45 < size <= 60: score += 60
-                    elif size > 65: score -= 150
-                    if is_remux(r) and size > 65: score -= 80
-                    return score
-
-                def archive_score(r):
-                    size = size_of(r)
-                    score = seeders_of(r)
-                    if has_2160(r): score += 260
-                    if is_remux(r): score += 220
-                    if is_bluray(r): score += 120
-                    if 'truehd' in title_l(r) or 'dts-hd' in title_l(r) or 'atmos' in title_l(r): score += 90
-                    if 'hdr' in title_l(r) or 'dv' in title_l(r): score += 70
-                    if size >= 35: score += 40
-                    return score
-
-                def compact_score(r):
-                    size = size_of(r)
-                    score = seeders_of(r) * 1.5
-                    if has_1080(r): score += 120
-                    if is_bluray(r) or is_web(r): score += 70
-                    if 'x265' in title_l(r) or 'hevc' in title_l(r): score += 50
-                    if 1.5 <= size <= 5: score += 120
-                    elif 5 < size <= 8: score += 65
-                    elif size > 10: score -= 250
-                    if is_tiny_group(r): score -= 35  # still allow if user wants compact.
-                    return score
-
-                candidates = []
-                unique_add(
-                    candidates,
-                    'Best Balance',
-                    'best normal viewing choice: strong quality without insane size',
-                    best_by([r for r in results if 2 <= size_of(r) <= 25 and (has_1080(r) or has_2160(r))], balance_score)
-                )
-                unique_add(
-                    candidates,
-                    'Best 1080p Quality',
-                    'best 1080p encode/source quality',
-                    best_by([r for r in results if has_1080(r)], best_1080_score)
-                )
-                unique_add(
-                    candidates,
-                    'Best 4K Practical',
-                    'best 2160p/4K option with reasonable size',
-                    best_by([r for r in results if has_2160(r) and size_of(r) <= 60], practical_4k_score)
-                )
-                unique_add(
-                    candidates,
-                    'Archive Max Quality',
-                    'maximum archive quality, storage-heavy',
-                    best_by(results, archive_score)
-                )
-                unique_add(
-                    candidates,
-                    'Compact',
-                    'smallest acceptable file for quick viewing',
-                    best_by([r for r in results if size_of(r) <= 8], compact_score)
-                )
-
-                # Fill up to 5 with strong unique alternatives if one category is missing.
-                for r in sorted(results, key=lambda x: x.get('score', 0), reverse=True):
-                    if len(candidates) >= 5:
-                        break
-                    unique_add(candidates, 'Alternative', 'strong fallback candidate', r)
-
-                lines = [
-                    f"Movie RAW candidates for: {clean_movie_query}",
-                    "Type a number to download. Example: 2",
-                    ""
-                ]
-                choices = []
-                for idx, c in enumerate(candidates[:5], start=1):
-                    r = c['item']
-                    title = r.get('title') or 'Unknown release'
-                    size = r.get('size_gb')
-                    seeders = r.get('seeders')
-                    reason = c['reason']
-                    lines.append(f"{idx}) {c['label']} — {size} GiB")
-                    lines.append(f"   {title}")
-                    lines.append(f"   {reason}. Seeds: {seeders}.")
-                    if size and float(size) >= 50:
-                        lines.append("   Warning: huge file; choose a practical option unless you want archival quality.")
-                    lines.append("")
-                    choices.append({
-                        "title": title,
-                        "label": c['label'],
-                        "size_gb": size,
-                        "reason": reason,
-                        "action": {
-                            "type": "torrent_add_raw",
-                            "label": f"Download {idx}",
-                            "torrent_link": r.get('downloadUrl', ''),
-                            "magnet_link": r.get('magnetUrl', ''),
-                            "title": title
-                        }
-                    })
-                lines.append("Choose by number: 1 = balanced, 3 = practical 4K, 4 = archive max quality.")
-                return json.dumps({"status": "success", "answer": "\n".join(lines).strip(), "actions": [], "choices": choices}, ensure_ascii=False)
-
-            if pdata.get('status') == 'not_configured':
-                answer = (
-                    f"I recognized this as a movie/show request: {clean_movie_query}.\n"
-                    "Nyaa is not the right provider for regular movies. Configure Prowlarr for movie/show RAW search.\n\n"
-                    "Prowlarr is a self-hosted indexer aggregator, not a public cloud API. Add PROWLARR_URL and PROWLARR_API_KEY to keys.json."
-                )
-                return json.dumps({"status": "success", "answer": answer, "actions": [{"type": "open_merger", "label": "Open Merger"}, {"type": "import_raw_downloads", "label": "Import RAW Downloads"}]}, ensure_ascii=False)
-            attempts_txt = ', '.join((pdata.get('attempts') or [])[:10])
-            errors_txt = '\n'.join((pdata.get('errors') or [])[:5])
-            fl_txt = pdata.get('flaresolverr') or {}
-            answer = (
-                f"Movie provider did not return RAW results for {clean_movie_query}.\n\n"
-                f"FlareSolverr: {fl_txt.get('status', 'unknown')} {fl_txt.get('message', '')}\n"
-                f"Attempts: {attempts_txt or 'none'}\n"
-                + (f"Errors:\n{errors_txt}\n" if errors_txt else "")
-                + "If Prowlarr UI finds this movie but the app does not, check that at least one enabled indexer is saved and that Prowlarr API key in keys.json matches the running Prowlarr instance."
-            )
-            return json.dumps({"status": "success", "answer": answer, "actions": [{"type": "open_merger", "label": "Open Merger"}]}, ensure_ascii=False)
-
-
-
-        if any(x in lower for x in ["merger", "merge", "склей", "скле", "даб", "dub"]):
-            local_actions.append({"type": "open_merger", "label": "Open Merger"})
-        if any(x in lower for x in ["raw", "nyaa", "торрент", "download", "скач", "prepare", "найди", "find"]):
-            if downloader_query:
-                local_actions.append({"type": "search_downloader", "label": f"Search RAW: {downloader_query}", "query": downloader_query})
-            else:
-                local_actions.append({"type": "open_downloader", "label": "Open Downloader"})
-
-        wants_dub = any(x in lower for x in ["dub", "даб", "дуб", "дубляж", "озвуч", "voice", "voiceover"])
-        if wants_dub and detected_title and detected_ep:
-            answer = (
-                f"I prepared the stable DUB Browser workflow for {detected_title} S{detected_season:02d}E{int(detected_ep):02d}.\n"
-                "The source will open inside the player. Sign in once if needed, choose the voice on the page, start the site download, and I will catch the finished file from Downloads/dub/."
-            )
-            return json.dumps({"status": "success", "answer": answer, "actions": [
-                {"type": "open_dub_source", "label": "Open built-in DUB Browser", "title": detected_title, "season": detected_season, "episode": int(detected_ep)},
-                {"type": "open_merger", "label": "Open Merger"}
-            ]}, ensure_ascii=False)
-
-
-        # If user asks for a concrete episode/RAW, resolve it NOW on the backend.
-        # Do not let GPT turn this into a useless "search" button.
-        wants_prepare = any(x in lower for x in [
-            "prepare", "find", "give me", "show me", "best raw", "raw", "best quality", "quality",
-            "найди", "подготов", "скачай", "download", "кач", "лучш", "серия", "эпизод"
-        ])
-        if detected_title and detected_ep and downloader_query and wants_prepare:
-            log_to_file(f"AI assistant deterministic prepare request: query={downloader_query}")
-            best, search_data = self._best_raw_candidate_for_query(downloader_query)
-            if best:
-                answer = (
-                    f"I found a concrete RAW candidate for {detected_title} S{detected_season:02d}E{int(detected_ep):02d}:\n\n"
-                    f"{best.get('title')}\n"
-                    f"Size: {best.get('size')} | Seeders: {best.get('seeders')} | Source: {best.get('source')} | Group: {best.get('group')} | Score: {best.get('score')}\n\n"
-                    "Recommendation: download this RAW into raw/ and then get the matching DUB. Should I add it to the internal torrent queue?"
-                )
-                return json.dumps({"status": "success", "answer": answer, "actions": [
-                    {"type": "torrent_add_raw", "label": "Download RAW to raw/", "torrent_link": best.get('torrent_link', ''), "magnet_link": best.get('magnet_link', ''), "title": best.get('title', '')},
-                    {"type": "open_merger", "label": "Open Merger"}
-                ]}, ensure_ascii=False)
-            else:
-                answer = f"I searched for {downloader_query}, but did not find a usable RAW candidate. Try a broader query like '{detected_title}'."
-                return json.dumps({"status": "success", "answer": answer, "actions": [{"type": "search_downloader", "label": f"Search RAW: {detected_title}", "query": detected_title}]}, ensure_ascii=False)
-
-        if any(x in lower for x in ["rezka", "резка", "озвуч", "dub"]):
-            local_actions.append({"type": "open_merger", "label": "Open Merger"})
-            local_actions.append({"type": "import_dub_downloads", "label": "Import DUB Downloads"})
-        if any(x in lower for x in ["scan", "match", "проверь", "пары"]):
-            local_actions.append({"type": "merger_scan", "label": "Scan RAW/DUB"})
-        if any(x in lower for x in ["merge all", "собери", "склей все"]):
-            local_actions.append({"type": "merger_merge_all", "label": "Merge All"})
-        if not openai_key:
-            if downloader_query:
-                answer = (
-                    f"I will prepare a RAW search for: {downloader_query}.\n"
-                    "Use the action button below to open Downloader and run the Nyaa search.\n"
-                    "After RAW is downloaded/imported to raw/, download your chosen DUB, import/watch dub/, then run Merger → Auto Sync + Merge All.\n\n"
-                    "Full GPT reasoning is disabled because no OPENAI_API_KEY was detected."
-                )
-            else:
-                answer = (
-                    "I can help with the workflow. Current safest pipeline:\n"
-                    "1. Put or import best RAW into raw/.\n"
-                    "2. Open DUB Source, download your chosen dub, then import/watch dub/.\n"
-                    "3. Use Merger → Auto Sync + Merge All.\n"
-                    "4. Use Add Outputs to Library and confirm the target title.\n\n"
-                    "Add OPENAI_API_KEY and TAVILY_API_KEY to keys.json for full reasoning and recommendations."
-                )
-            return json.dumps({"status": "success", "answer": answer, "actions": local_actions[:4]}, ensure_ascii=False)
-
-        web_context = ""
-        if tavily_key and any(x in lower for x in ["recommend", "похож", "атмосфер", "best", "лучш", "quality", "source", "called", "identify", "what film", "what movie", "как называется", "что за фильм"]):
-            try:
-                req_data = json.dumps({
-                    "api_key": tavily_key,
-                    "query": user_message + " anime movie show recommendations best source watch order",
-                    "search_depth": "basic",
-                    "include_answer": True,
-                    "max_results": 5
-                }).encode("utf-8")
-                req = urllib.request.Request("https://api.tavily.com/search", data=req_data, headers={"Content-Type": "application/json"}, method="POST")
-                with urllib.request.urlopen(req, timeout=10) as response:
-                    tr = json.loads(response.read().decode("utf-8", errors="replace"))
-                    chunks = []
-                    if tr.get("answer"):
-                        chunks.append("Answer: " + tr.get("answer"))
-                    for r in tr.get("results", [])[:5]:
-                        chunks.append(f"Title: {r.get('title','')}\nContent: {r.get('content','')}")
-                    web_context = "\n\n".join(chunks)[:6000]
-            except Exception as e:
-                web_context = "Tavily unavailable: " + str(e)
-
-        system_prompt = (
-            "You are :3, the built-in assistant for Minimal Media Player Pro. "
-            "You know the app features: Catalog, Library, Watching Guard, Downloader/Nyaa RAW search, Merger RAW/DUB pipeline, DUB Source browser workflow, Demucs voice-only overlay, output-to-library linking. "
-            "Be concise, practical, and proactive. Never instruct bypassing protected websites or hidden APIs. "
-            "Return ONLY JSON with keys: answer (string), actions (array). "
-            "Allowed action types: open_downloader, search_downloader, torrent_add_raw, open_merger, open_dub_source, import_raw_downloads, import_dub_downloads, merger_scan, merger_merge_all, add_outputs_to_library. "
-            "For search_downloader include a query field, e.g. {type:'search_downloader', label:'Search RAW: Kill Blue S01E07', query:'Kill Blue S01E07'}. "
-            "When the user asks to prepare/download an episode range, clearly state what RAW query or episode range you are preparing before giving actions. "
-            "Each action object must have type and label."
-        )
-        user_prompt = json.dumps({
-            "user_message": user_message,
-            "app_context": context,
-            "web_context": web_context
-        }, ensure_ascii=False, indent=2)
-        try:
-            payload = json.dumps({
-                "model": "gpt-4o-mini",
-                "messages": [
-                    {"role": "system", "content": system_prompt},
-                    {"role": "user", "content": user_prompt}
-                ],
-                "temperature": 0.25,
-                "response_format": {"type": "json_object"}
-            }).encode("utf-8")
-            req = urllib.request.Request(
-                "https://api.openai.com/v1/chat/completions",
-                data=payload,
-                headers={"Content-Type": "application/json", "Authorization": f"Bearer {openai_key}"},
-                method="POST"
-            )
-            with urllib.request.urlopen(req, timeout=18) as response:
-                data = json.loads(response.read().decode("utf-8", errors="replace"))
-                raw = data["choices"][0]["message"]["content"].strip()
-                parsed = json.loads(raw)
-                return json.dumps({"status": "success", "answer": parsed.get("answer", "Done."), "actions": parsed.get("actions", [])[:6]}, ensure_ascii=False)
-        except Exception as e:
-            answer = "AI request failed, but I can still route you through the local workflow. Open Merger for RAW/DUB automation or Downloader for Nyaa RAW search. Error: " + str(e)
-            return json.dumps({"status": "success", "answer": answer, "actions": local_actions[:4]}, ensure_ascii=False)
+            ctx = {}
+        if ASSISTANT is None:
+            return json.dumps({"status": "error", "answer": "Assistant is not ready.", "actions": []}, ensure_ascii=False)
+        return json.dumps(ASSISTANT.chat(user_message, ctx), ensure_ascii=False, default=str)
 
     def process_file(self, filepath, filename):
         """ Remuxes TS to MP4 on-the-fly using FFmpeg copy stream (0.5 seconds, 100% quality) """
@@ -2520,7 +2149,13 @@ class PlayerAPI:
                 startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
                 
             proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, startupinfo=startupinfo)
-            stdout, stderr = proc.communicate(timeout=15)
+            try:
+                stdout, stderr = proc.communicate(timeout=15)
+            except subprocess.TimeoutExpired:
+                proc.kill(); proc.communicate()
+                stdout, stderr = b'', b'remux timed out'
+                try: os.remove(target_mp4)
+                except Exception: pass
             
             if os.path.exists(target_mp4) and os.path.getsize(target_mp4) > 1024:
                 log_to_file("Successfully remuxed TS to MP4!")
@@ -2823,7 +2458,8 @@ class PlayerAPI:
             except Exception:
                 playback_audio_index = None
             selected_audio_map = f"0:{int(playback_audio_index)}" if playback_audio_index is not None else '0:a:0'
-            if not analysis.get('needs_audio_sidecar'):
+            _wants_video_proxy = str(mode or '').lower().strip() in ('video', 'video_transcode', 'browser', 'mp4')
+            if not analysis.get('needs_audio_sidecar') and not _wants_video_proxy:
                 return json.dumps({
                     "status": "ready",
                     "mode": "direct",
@@ -3121,7 +2757,7 @@ class PlayerAPI:
     def select_link_folder(self, mal_id, anime_title):
         """ Opens multi-file dialog on a background thread to prevent deadlocks, copies/remuxes files safely """
         log_to_file(f"=== select_link_folder called for: {anime_title} ===")
-        if not self.window:
+        if not self._window:
             return
             
         def worker():
@@ -3131,14 +2767,14 @@ class PlayerAPI:
                     'Video Files (*.mp4;*.webm;*.mkv;*.ts)',
                     'All Files (*.*)'
                 )
-                file_paths = self.window.create_file_dialog(
+                file_paths = self._window.create_file_dialog(
                     dialog_type=webview.OPEN_DIALOG,
                     allow_multiple=True,
                     file_types=file_types
                 )
                 if not file_paths:
                     try:
-                        self.window.evaluate_js("if(window.hideTaskOverlay) window.hideTaskOverlay(0);")
+                        self._window.evaluate_js("if(window.hideTaskOverlay) window.hideTaskOverlay(0);")
                     except Exception:
                         pass
                     return
@@ -3182,7 +2818,12 @@ class PlayerAPI:
                                     startupinfo = subprocess.STARTUPINFO()
                                     startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
                                 proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, startupinfo=startupinfo)
-                                proc.communicate(timeout=15)
+                                try:
+                                    proc.communicate(timeout=15)
+                                except subprocess.TimeoutExpired:
+                                    proc.kill(); proc.communicate()
+                                    try: os.remove(target_path)
+                                    except Exception: pass
                                 if os.path.exists(target_path) and os.path.getsize(target_path) > 1024:
                                     results.append({
                                         'path': target_path,
@@ -3230,7 +2871,7 @@ class PlayerAPI:
                         
                 import json
                 js_code = f"completeMultipleEpisodesLinking({mal_id}, {json.dumps(results)});"
-                self.window.evaluate_js(js_code)
+                self._window.evaluate_js(js_code)
             except Exception as e:
                 log_to_file(f"Exception in select_link_folder worker: {e}")
                 
@@ -3240,7 +2881,7 @@ class PlayerAPI:
     def select_link_file(self, mal_id, ep_num, anime_title):
         """ Opens file dialog on a background thread to prevent deadlocks, copies/remuxes file safely, and returns path """
         log_to_file(f"=== select_link_file called for: {anime_title}, ep: {ep_num} ===")
-        if not self.window:
+        if not self._window:
             return
             
         def worker():
@@ -3250,14 +2891,14 @@ class PlayerAPI:
                     'Video Files (*.mp4;*.webm;*.mkv;*.ts)',
                     'All Files (*.*)'
                 )
-                file_paths = self.window.create_file_dialog(
+                file_paths = self._window.create_file_dialog(
                     dialog_type=webview.OPEN_DIALOG,
                     allow_multiple=False,
                     file_types=file_types
                 )
                 if not file_paths:
                     try:
-                        self.window.evaluate_js("if(window.cancelEpisodeLinking) window.cancelEpisodeLinking(); else if(window.hideTaskOverlay) window.hideTaskOverlay(0);")
+                        self._window.evaluate_js("if(window.cancelEpisodeLinking) window.cancelEpisodeLinking(); else if(window.hideTaskOverlay) window.hideTaskOverlay(0);")
                     except Exception:
                         pass
                     return
@@ -3266,7 +2907,7 @@ class PlayerAPI:
                 original_selected_path = fp
                 original_name = os.path.basename(fp)
                 try:
-                    self.window.evaluate_js("if(window.showTaskOverlay) window.showTaskOverlay('Linking selected media...', 'Preparing the selected file. Large files are linked directly.');")
+                    self._window.evaluate_js("if(window.showTaskOverlay) window.showTaskOverlay('Linking selected media...', 'Preparing the selected file. Large files are linked directly.');")
                 except Exception:
                     pass
                 
@@ -3295,7 +2936,12 @@ class PlayerAPI:
                                 startupinfo = subprocess.STARTUPINFO()
                                 startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
                             proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, startupinfo=startupinfo)
-                            proc.communicate(timeout=15)
+                            try:
+                                proc.communicate(timeout=15)
+                            except subprocess.TimeoutExpired:
+                                proc.kill(); proc.communicate()
+                                try: os.remove(target_path)
+                                except Exception: pass
                             if os.path.exists(target_path) and os.path.getsize(target_path) > 1024:
                                 fp = target_path
                                 original_name = target_name
@@ -3324,7 +2970,7 @@ class PlayerAPI:
                 import json
                 processed_file = {"path": fp, "name": original_name, "is_remuxed": is_remuxed, "linked_directly": is_direct_link}
                 js_code = f"completeEpisodeLinking({mal_id}, {ep_num}, {json.dumps(processed_file)});"
-                self.window.evaluate_js(js_code)
+                self._window.evaluate_js(js_code)
             except Exception as e:
                 log_to_file(f"Exception in select_link_file worker: {e}")
                 
@@ -3333,7 +2979,7 @@ class PlayerAPI:
     def select_files(self):
         """ Opens a fully native OS file selection dialog via a non-blocking thread to prevent deadlocks """
         log_to_file("=== select_files called ===")
-        if not self.window:
+        if not self._window:
             return []
             
         def worker():
@@ -3346,7 +2992,7 @@ class PlayerAPI:
                     'All Files (*.*)'
                 )
                 
-                file_paths = self.window.create_file_dialog(
+                file_paths = self._window.create_file_dialog(
                     dialog_type=webview.OPEN_DIALOG,
                     allow_multiple=True,
                     file_types=file_types
@@ -3372,7 +3018,7 @@ class PlayerAPI:
                 
                 import json
                 js_code = f"addFilesToPlaylist({json.dumps(results)});"
-                self.window.evaluate_js(js_code)
+                self._window.evaluate_js(js_code)
             except Exception as e:
                 log_to_file(f"Exception in select_files worker: {e}")
                 
@@ -3381,8 +3027,8 @@ class PlayerAPI:
 
     def toggle_native_fullscreen(self):
         """ Toggles the OS-level borderless window fullscreen """
-        if self.window:
-            self.window.toggle_fullscreen()
+        if self._window:
+            self._window.toggle_fullscreen()
 
     def merger_open_folder(self, folder_key="raw_folder"):
         """Opens RAW/DUB/OUTPUT workflow folder in the OS file manager."""
@@ -3824,7 +3470,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
                 f'--app={safe_url}'
             ]
             subprocess.Popen(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, stdin=subprocess.DEVNULL)
-            self.dub_context = {"title": title or "", "season": int(season or 1), "episode": int(episode or 0), "url": safe_url, "mode": "chromium", "userscript_file": script_file}
+            self._dub_context = {"title": title or "", "season": int(season or 1), "episode": int(episode or 0), "url": safe_url, "mode": "chromium", "userscript_file": script_file}
             log_to_file(f"Chromium DUB Browser launched: {safe_url}; userscript={script_file}; extensions={ext_arg}")
             return True
         except Exception as e:
@@ -3889,8 +3535,8 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
                 min_size=(900, 560),
                 background_color="#050508"
             )
-            self.dub_window = dub_window
-            self.dub_context = {"title": title or "", "season": int(season or 1), "episode": int(episode or 0), "url": safe_url}
+            self._dub_window = dub_window
+            self._dub_context = {"title": title or "", "season": int(season or 1), "episode": int(episode or 0), "url": safe_url}
 
             # WebView fallback: inject on every navigation/load event. Login pages often redirect and replace the document,
             # so a one-time injection disappears. This keeps the :3 userscript panel alive after sign-in.
@@ -3984,7 +3630,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
         # Priority 2: General FFmpeg fallback
         log_to_file("Running FFmpeg fallback...")
         try:
-            cmd = ["ffmpeg", "-i", filepath]
+            cmd = [get_ffmpeg_path() or "ffmpeg", "-i", filepath]
             startupinfo = None
             if os.name == 'nt':
                 startupinfo = subprocess.STARTUPINFO()
@@ -4213,7 +3859,7 @@ Return only JSON:
         else:
             try:
                 with open(keys_file, "w", encoding="utf-8") as f:
-                    json.dump({"OPENAI_API_KEY": "", "TAVILY_API_KEY": "", "QBIT_URL": "", "QBIT_USERNAME": "", "QBIT_PASSWORD": "", "MOVIE_RAW_PROVIDER": "prowlarr", "PROWLARR_URL": "http://127.0.0.1:9696", "PROWLARR_API_KEY": "", "FLARESOLVERR_PATH": "", "FLARESOLVERR_URL": "http://127.0.0.1:8191", "FLARESOLVERR_AUTOSTART": False}, f, indent=4, ensure_ascii=False)
+                    json.dump({"AI_PROVIDER": "", "AI_MODEL": "", "AI_BASE_URL": "", "AI_API_KEY": "", "OPENAI_API_KEY": "", "DEEPSEEK_API_KEY": "", "TAVILY_API_KEY": "", "TMDB_API_KEY": "", "QBIT_URL": "", "QBIT_USERNAME": "", "QBIT_PASSWORD": "", "MOVIE_RAW_PROVIDER": "prowlarr", "PROWLARR_URL": "http://127.0.0.1:9696", "PROWLARR_API_KEY": "", "FLARESOLVERR_PATH": "", "FLARESOLVERR_URL": "http://127.0.0.1:8191", "FLARESOLVERR_AUTOSTART": False, "DUB_PROVIDER_COMMAND": "", "DUB_SOURCE_URL": ""}, f, indent=4, ensure_ascii=False)
             except Exception:
                 pass
         
@@ -4469,7 +4115,11 @@ Return ONLY this JSON object, no markdown:
             "watching_progress": "{}",
             "viewing_history": "{}",
             "playlist": "{}",
-            "playlist_index": "{}"
+            "playlist_index": "{}",
+            "watched": "{}",
+            "bookmarks": "{}",
+            "prefs": "{}",
+            "skip_markers": "{}"
         }
         if not USER_DATA_DIR:
             return json.dumps(result)
@@ -4493,7 +4143,7 @@ Return ONLY this JSON object, no markdown:
                         with open(file_path, "r", encoding="utf-8") as f:
                             content = f.read()
                         # Prefer first non-empty meaningful database, but allow .bak/workflow backup if AppData is empty/corrupt.
-                        if content and content.strip() not in ("", "{}", "[]"):
+                        if content and content.strip():
                             try:
                                 json.loads(content)
                             except Exception:
@@ -4700,7 +4350,8 @@ Return ONLY this JSON object, no markdown:
                         title = title_match.group(2) if title_match.group(1).isdigit() else title_match.group(1)  
                           
                         # Декодирование HTML сущностей  
-                        title = title.replace('&amp;amp;', '&').replace('&amp;quot;', '"').replace('&amp;lt;', '<').replace('&amp;gt;', '>')  
+                        import html as _html
+                        title = _html.unescape(title)
                           
                         magnet_match = re.search(r'href="(magnet:\?[^"]+)"', row)  
                         magnet_link = magnet_match.group(1) if magnet_match else ""  
@@ -4711,7 +4362,7 @@ Return ONLY this JSON object, no markdown:
                         torrent_link = f"https://nyaa.si/download/{view_id}.torrent"  
                           
                         tds = re.findall(r'<td class="text-center"[^>]*>(.+?)</td>', row, re.DOTALL)  
-                        if len(tds) < 4:  
+                        if len(tds) < 5:  
                             continue  
                               
                         size_val = re.sub(r'<[^>]+>', '', tds[1]).strip()  
@@ -5045,6 +4696,36 @@ Return ONLY this JSON object, no markdown:
             log_to_file(f"Exception in search_nyaa_torrents: {global_e}")
             return json.dumps({"status": "error", "message": f"Произошла непредвиденная ошибка на стороне бэкенда: {global_e}"})
 
+def _get_keys_dict():
+    import json as _json
+    try:
+        with open(get_keys_file(), 'r', encoding='utf-8') as f:
+            d = _json.load(f)
+        return d if isinstance(d, dict) else {}
+    except Exception:
+        return {}
+
+
+def _init_services(api):
+    """Metadata cache + assistant. Cheap: no network at startup."""
+    global ASSISTANT
+    try:
+        metadata.configure(get_workflow_data_dir("cache"), _get_keys_dict)
+    except Exception as e:
+        log_to_file(f"metadata init failed: {e}")
+    try:
+        ASSISTANT = assistant_module.Assistant(
+            api=api,
+            keys_getter=_get_keys_dict,
+            db_loader=lambda key: api.load_db_data(key),
+            metadata_module=metadata,
+            data_dir=get_workflow_data_dir("assistant"),
+            logger=log_to_file,
+        )
+    except Exception as e:
+        log_to_file(f"assistant init failed: {e}")
+
+
 def run_server():
     # IMPORTANT: Bottle's default wsgiref server is single-threaded.
     # The player serves local video through /media; a long video stream can occupy the only request
@@ -5072,7 +4753,7 @@ if __name__ == '__main__':
         try:
             import json
             with open(keys_file, "w", encoding="utf-8") as f:
-                json.dump({"OPENAI_API_KEY": "", "TAVILY_API_KEY": "", "QBIT_URL": "", "QBIT_USERNAME": "", "QBIT_PASSWORD": "", "MOVIE_RAW_PROVIDER": "prowlarr", "PROWLARR_URL": "http://127.0.0.1:9696", "PROWLARR_API_KEY": "", "FLARESOLVERR_PATH": "", "FLARESOLVERR_URL": "http://127.0.0.1:8191", "FLARESOLVERR_AUTOSTART": False}, f, indent=4, ensure_ascii=False)
+                json.dump({"AI_PROVIDER": "", "AI_MODEL": "", "AI_BASE_URL": "", "AI_API_KEY": "", "OPENAI_API_KEY": "", "DEEPSEEK_API_KEY": "", "TAVILY_API_KEY": "", "TMDB_API_KEY": "", "QBIT_URL": "", "QBIT_USERNAME": "", "QBIT_PASSWORD": "", "MOVIE_RAW_PROVIDER": "prowlarr", "PROWLARR_URL": "http://127.0.0.1:9696", "PROWLARR_API_KEY": "", "FLARESOLVERR_PATH": "", "FLARESOLVERR_URL": "http://127.0.0.1:8191", "FLARESOLVERR_AUTOSTART": False, "DUB_PROVIDER_COMMAND": "", "DUB_SOURCE_URL": ""}, f, indent=4, ensure_ascii=False)
         except Exception:
             pass
 
@@ -5083,6 +4764,12 @@ if __name__ == '__main__':
     # Initialize PyWebView Window and inject the API
     api = PlayerAPI()
     API_INSTANCE = api
+    _init_services(api)
+    try:
+        # The user downloads dubs manually inside the DUB Browser window; WebView must allow it.
+        webview.settings['ALLOW_DOWNLOADS'] = True
+    except Exception:
+        pass
     window = webview.create_window(
         title='Minimal Media Player Pro',
         url=f'http://127.0.0.1:{PORT}/',
@@ -5092,7 +4779,7 @@ if __name__ == '__main__':
         min_size=(800, 520),
         background_color='#020204'
     )
-    api.window = window
+    api._window = window
     
     # Launch pywebview window main loop.
     # Explicit storage_path improves WebView2 cookie/session persistence across restarts.
