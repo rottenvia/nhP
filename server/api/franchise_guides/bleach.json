@@ -1,0 +1,14 @@
+{
+  "title": "Bleach",
+  "slug": "bleach",
+  "kind": "anime",
+  "watch_markers": [
+    {"after_episode": 63, "type": "movie", "title": "Bleach: Memories of Nobody", "canon": "optional", "reason": "Best watched after Soul Society arc."},
+    {"after_episode": 125, "type": "movie", "title": "Bleach: The DiamondDust Rebellion", "canon": "optional", "reason": "Optional movie; safest after early Arrancar material."},
+    {"after_episode": 167, "type": "movie", "title": "Bleach: Fade to Black", "canon": "optional", "reason": "Optional movie after later Soul Society context."},
+    {"after_episode": 299, "type": "movie", "title": "Bleach: Hell Verse", "canon": "optional", "reason": "Optional movie best after later Arrancar episodes."}
+  ],
+  "related": [
+    {"title": "Burn the Witch", "relation": "same universe", "placement": "standalone / after main Bleach is fine"}
+  ]
+}

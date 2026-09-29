@@ -1,0 +1,609 @@
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Minimal Media Player Pro</title>
+    <!-- Include mpegts.js for standalone .ts file playback -->
+    <script src="/static/mpegts.min.js?v=10.1"></script>
+    <link rel="stylesheet" href="/static/style.css?v=10.1">
+</head>
+<body>
+
+    <div id="app-boot-overlay" class="app-boot-overlay">
+        <div class="boot-card">
+            <div class="boot-smile">:3</div>
+            <div class="boot-title">Minimal Media Player Pro</div>
+            <div class="boot-subtitle">Starting fast mode... UI is ready in a moment.</div>
+            <div class="boot-bar"><span></span></div>
+        </div>
+    </div>
+
+    <!-- Arc/Chrome Style Top Double-Decker Header -->
+    <div class="top-header-container">
+        <div class="top-tab-bar">
+            <button id="tab-load-btn" class="tab-btn active">
+                <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                    <circle cx="12" cy="12" r="10"/>
+                    <circle cx="12" cy="12" r="3"/>
+                </svg>
+                <span>Load</span>
+            </button>
+            <button id="tab-search-btn" class="tab-btn">
+                <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                    <circle cx="11" cy="11" r="8"/>
+                    <line x1="21" y1="21" x2="16.65" y2="16.65"/>
+                </svg>
+                <span>Search</span>
+            </button>
+            <button id="tab-downloader-btn" class="tab-btn">
+                <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M7 10l5 5 5-5M12 15V3"/>
+                </svg>
+                <span>Downloader</span>
+            </button>
+            <button id="tab-merger-btn" class="tab-btn">
+                <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M8 7h8M8 17h8M4 12h16"/>
+                    <path d="M7 4l-3 3 3 3M17 14l3 3-3 3"/>
+                </svg>
+                <span>Merger</span>
+            </button>
+        </div>
+        
+        <!-- Sub-navigation: Catalog / Library / Watching (Placed symmetrically below Load / Search) -->
+        <div id="search-sub-bar" class="search-sub-bar hidden">
+            <button id="subtab-catalog-btn" class="subtab-btn active">Catalog</button>
+            <button id="subtab-library-btn" class="subtab-btn">Library</button>
+            <button id="subtab-watching-btn" class="subtab-btn">Watching</button>
+        </div>
+    </div>
+
+    <!-- Drag and Drop Overlay -->
+    <div id="drop-overlay" class="drop-overlay">
+        <div class="drop-box">
+            <svg class="drop-icon" viewBox="0 0 24 24" width="48" height="48" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M12 5v14M5 12h14"/>
+            </svg>
+            <p>Drop your media files here</p>
+        </div>
+    </div>
+
+    <!-- Main Container -->
+    <div class="app-container">
+        
+        <!-- Viewport for Video/Audio Canvas -->
+        <div class="player-viewport" id="player-viewport">
+            <button id="player-back-to-home-btn" class="player-back-to-home-btn" title="Exit Player">
+                <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                    <line x1="19" y1="12" x2="5" y2="12"></line>
+                    <polyline points="12 19 5 12 12 5"></polyline>
+                </svg>
+            </button>
+            <video id="media-player" playsinline></video>
+            
+            <!-- Lightweight Premium Subtitle Overlay -->
+            <div id="subtitles-overlay" class="subtitles-overlay hidden"></div>
+            
+            <!-- Dynamic Dismissable "Skip" Container (Pill) for Intro & Outro -->
+            <div id="skip-container" class="skip-pill hidden">
+                <button id="skip-action-btn" class="skip-btn">
+                    <span id="skip-text">Skip Intro</span>
+                    <span id="skip-key-label" class="key-badge">S</span>
+                </button>
+                <button id="skip-close-btn" class="skip-close-btn" title="Dismiss overlay">&times;</button>
+            </div>
+
+            <!-- Next Episode Countdown Overlay (Netflix Style) -->
+            <div id="next-episode-overlay" class="next-episode-overlay hidden">
+                <div class="next-ep-content">
+                    <p class="next-ep-label">Next Episode starts in</p>
+                    <div id="next-ep-timer" class="next-ep-timer">5</div>
+                    <h4 id="next-ep-title" class="next-ep-title">Episode 2</h4>
+                    <div style="display: flex; gap: 12px; justify-content: center; margin-top: 16px;">
+                        <button id="next-ep-skip-btn" class="action-btn" style="background: #7c5cfc; border-color: #7c5cfc; color: #fff; cursor: pointer;">Play Now</button>
+                        <button id="next-ep-cancel-btn" class="action-btn" style="background: rgba(255,255,255,0.05); border-color: rgba(255,255,255,0.08); cursor: pointer;">Cancel</button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Minimal Center Feedback HUD (Flashes on hotkey trigger) -->
+            <div id="hud-overlay" class="hud-overlay">
+                <div class="hud-content" id="hud-content">
+                    <!-- Dynamic icon/value injected via JS -->
+                </div>
+            </div>
+
+            <!-- Audio UI Overlay (Only active for audio files) -->
+            <div id="audio-ui" class="audio-ui active">
+                <canvas id="visualizer-canvas"></canvas>
+                
+                <div class="music-info-container">
+                    <div class="vinyl-wrapper" id="vinyl-wrapper">
+                        <div class="vinyl-disc" id="vinyl-disc">
+                            <div class="vinyl-center-art">
+                                <!-- Hand-drawn crooked smiley face SVG (Slightly larger and crisp) -->
+                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" width="54" height="54">
+                                    <path d="M12.1 2.3 C17.3 2.1, 21.8 6.5, 21.9 11.9 C22.0 17.3, 17.1 21.9, 11.8 21.7 C6.4 21.5, 2.2 16.8, 2.3 11.4 C2.4 6.1, 6.9 2.5, 12.1 2.3" />
+                                    <path d="M8.5 9.5 A 0.8 1 0 1 1 8.5 9.4" fill="currentColor" />
+                                    <path d="M15.2 10.2 A 1 0.8 0 1 1 15.2 10.1" fill="currentColor" />
+                                    <path d="M7.5 14.5 C9.2 17.2, 14.8 16.8, 16.5 13.8" />
+                                </svg>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div class="track-details">
+                        <h2 id="track-title" class="track-title">Minimalist Player Pro</h2>
+                        <p id="track-artist" class="track-artist">Open a media file or drag & drop it here to begin</p>
+                        <div id="central-open-btn" class="central-open-btn">
+                            <svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/>
+                            </svg>
+                        </div>
+                        
+
+                    </div>
+                </div>
+            </div>
+
+            <!-- Toast Messages -->
+            <div id="toast" class="toast">Notification</div>
+        </div>
+
+        <!-- Sleek Glassmorphic Playlist Sidebar (Slides from Right) -->
+        <div class="playlist-sidebar hidden" id="playlist-sidebar">
+            <div class="sidebar-header">
+                <h3>Playlist (<span id="playlist-count">0</span>)</h3>
+                <button id="add-btn" class="icon-btn tooltip" data-tooltip="Add Files">
+                    <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                        <path d="M12 5v14M5 12h14"/>
+                    </svg>
+                </button>
+            </div>
+            <div class="playlist-items" id="playlist-items">
+                <div class="empty-playlist">
+                    <p>Playlist is empty</p>
+                    <button id="add-first-btn" class="action-btn">Add Files</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Ultra-Minimal Floating Controls Panel (Hidden by default, shown on playback start) -->
+        <div class="controls-card" id="controls-card">
+            
+            <!-- Top Row: Seek bar (Sits perfectly inside the card flow to avoid sticking out) -->
+            <div class="seekbar-row">
+                <div class="slider-wrapper">
+                    <!-- Bookmarks markers container -->
+                    <div id="bookmarks-markers-container" class="bookmarks-markers-container"></div>
+                    <input type="range" id="seekbar" class="styled-slider" min="0" max="100" value="0" step="0.1">
+                    <div id="seekbar-tooltip" class="seekbar-tooltip">00:00</div>
+                </div>
+            </div>
+
+            <!-- Bottom Row: Controls & Meta -->
+            <div class="controls-row">
+                <!-- Left: Play/Pause/Skip + Time -->
+                <div class="controls-group left-group">
+                    <button id="play-btn" class="control-btn tooltip" data-tooltip="Play / Pause (Space)">
+                        <svg id="play-icon" viewBox="0 0 24 24" width="16" height="16" fill="currentColor">
+                            <path d="M8 5v14l11-7z"/>
+                        </svg>
+                        <svg id="pause-icon" class="hidden" viewBox="0 0 24 24" width="16" height="16" fill="currentColor">
+                            <path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z"/>
+                        </svg>
+                    </button>
+                    
+                    <button id="prev-btn" class="control-btn tooltip" data-tooltip="Previous (Shift+←)">
+                        <svg viewBox="0 0 24 24" width="14" height="14" fill="currentColor">
+                            <path d="M6 6h2v12H6zm3.5 6l8.5 6V6z"/>
+                        </svg>
+                    </button>
+                    
+                    <button id="next-btn" class="control-btn tooltip" data-tooltip="Next (Shift+→)">
+                        <svg viewBox="0 0 24 24" width="14" height="14" fill="currentColor">
+                            <path d="M6 18l8.5-6L6 6zm9-12h2v12h-2z"/>
+                        </svg>
+                    </button>
+
+                    <div class="time-container">
+                        <span id="current-time">00:00</span>
+                        <span class="time-separator">/</span>
+                        <span id="total-duration">00:00</span>
+                    </div>
+                </div>
+
+                <!-- Right: Speed, Volume, Playlist, Fullscreen, Open -->
+                <div class="controls-group right-group">
+                    
+                    <!-- File Select (Open) -->
+                    <button id="open-file-btn" class="control-btn tooltip" data-tooltip="Open Media">
+                        <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                            <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/>
+                        </svg>
+                    </button>
+
+                    <!-- Subtitles Toggler (CC) -->
+                    <button id="subtitle-btn" class="control-btn tooltip" data-tooltip="Subtitles (C)">
+                        <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                            <rect x="3" y="3" width="18" height="18" rx="2" ry="2"/>
+                            <path d="M7 15h2M11 15h6M7 9h10"/>
+                        </svg>
+                    </button>
+
+                    <!-- Speed Selector -->
+                    <div class="speed-selector-container">
+                        <button id="speed-btn" class="control-btn text-btn tooltip" data-tooltip="Playback Speed">1.0x</button>
+                        <div id="speed-menu" class="speed-menu">
+                            <div class="speed-option" data-speed="0.5">0.5x</div>
+                            <div class="speed-option" data-speed="0.75">0.75x</div>
+                            <div class="speed-option active" data-speed="1.0">1.0x</div>
+                            <div class="speed-option" data-speed="1.25">1.25x</div>
+                            <div class="speed-option" data-speed="1.5">1.5x</div>
+                            <div class="speed-option" data-speed="2.0">2.0x</div>
+                        </div>
+                    </div>
+
+                    <!-- Volume Control (Permanently aligned and stable) -->
+                    <div class="volume-container">
+                        <button id="volume-btn" class="control-btn tooltip" data-tooltip="Mute / Unmute">
+                            <svg id="volume-high" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                                <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"></polygon>
+                                <path d="M15.54 8.46a5 5 0 0 1 0 7.07"></path>
+                            </svg>
+                            <svg id="volume-muted" class="hidden" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                                <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"></polygon>
+                                <line x1="23" y1="9" x2="17" y2="15"></line>
+                                <line x1="17" y1="9" x2="23" y2="15"></line>
+                            </svg>
+                        </button>
+                        <div class="volume-slider-wrapper">
+                            <input type="range" id="volume-slider" class="styled-slider" min="0" max="100" value="80">
+                        </div>
+                    </div>
+
+                    <!-- Toggle Sidebar -->
+                    <button id="toggle-playlist-btn" class="control-btn tooltip" data-tooltip="Playlist">
+                        <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                            <line x1="8" y1="6" x2="21" y2="6"></line>
+                            <line x1="8" y1="12" x2="21" y2="12"></line>
+                            <line x1="8" y1="18" x2="21" y2="18"></line>
+                            <line x1="3" y1="6" x2="3.01" y2="6"></line>
+                            <line x1="3" y1="12" x2="3.01" y2="12"></line>
+                            <line x1="3" y1="18" x2="3.01" y2="18"></line>
+                        </svg>
+                    </button>
+                    
+                    <!-- Fullscreen -->
+                    <button id="fullscreen-btn" class="control-btn tooltip" data-tooltip="Fullscreen (F11 / F)">
+                        <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                            <path d="M8 3H5a2 2 0 0 0-2 2v3m18 0V5a2 2 0 0 0-2-2h-3m0 18h3a2 2 0 0 0 2-2v-3M3 16v3a2 2 0 0 0 2 2h3"/>
+                        </svg>
+                    </button>
+
+                </div>
+            </div>
+
+        </div>
+
+        <!-- Search / Database view -->
+        <div id="search-view" class="search-view hidden">
+
+            <!-- View 1: Catalog Search -->
+            <div id="catalog-container" class="sub-view-container">
+                <div class="catalog-categories-bar" style="display: flex; gap: 8px; justify-content: center; margin-top: 16px; margin-bottom: -16px;">
+                    <button id="catalog-cat-anime-btn" class="category-btn active" data-search-cat="anime">Anime</button>
+                    <button id="catalog-cat-movie-btn" class="category-btn" data-search-cat="movie">Movie</button>
+                    <button id="catalog-cat-show-btn" class="category-btn" data-search-cat="show">Show</button>
+                </div>
+                <div class="search-input-wrapper">
+                    <input type="text" id="catalog-search-input" placeholder="Search anime, movies, series...">
+                    <button id="catalog-search-submit" class="search-submit-btn" title="Search">
+                        <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                            <circle cx="11" cy="11" r="8"/>
+                            <line x1="21" y1="21" x2="16.65" y2="16.65"/>
+                        </svg>
+                    </button>
+                </div>
+                <div id="catalog-results" class="catalog-results-grid">
+                    <!-- Search results injected here -->
+                </div>
+            </div>
+
+            <!-- View 2: Series Library -->
+            <div id="library-container" class="sub-view-container hidden">
+                <!-- Library Categories: Movie / Show / Anime -->
+                <div class="library-categories-bar">
+                    <button id="category-movie-btn" class="category-btn active" data-category="movie">Movie</button>
+                    <button id="category-show-btn" class="category-btn" data-category="show">Show</button>
+                    <button id="category-anime-btn" class="category-btn" data-category="anime">Anime</button>
+                </div>
+                <div id="library-grid" class="library-grid">
+                    <!-- Library items for the selected category injected here -->
+                </div>
+            </div>
+
+            <!-- View 3: Watching Now & History Dashboard -->
+            <div id="watching-container" class="sub-view-container hidden">
+                <div class="watching-dashboard-layout">
+                    <!-- Column 1: Active Watching -->
+                    <div class="watching-section">
+                        <h3 class="watching-section-title">Watching</h3>
+                        <div id="watching-progress-list" class="watching-grid">
+                            <!-- In-progress cards with resume buttons and progress bars -->
+                        </div>
+                    </div>
+
+                    <!-- Column 2: Release Schedule Countdown -->
+                    <div class="watching-section">
+                        <h3 class="watching-section-title">Release Schedule</h3>
+                        <div id="watching-schedule-list" class="history-list">
+                            <!-- Countdown timers for currently airing anime inside Library -->
+                        </div>
+                    </div>
+                    
+                    <!-- Column 3: History list section -->
+                    <div class="watching-section">
+                        <h3 class="watching-section-title">History</h3>
+                        <div id="watching-history-list" class="history-list">
+                            <!-- List of recently watched items -->
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Downloader View -->
+        <div id="downloader-view" class="search-view hidden" style="padding-top: 24px;">
+            <!-- Sleek input bar -->
+            <div class="search-input-wrapper" style="margin-top: 10px; margin-bottom: 24px;">
+                <input type="text" id="downloader-search-input" placeholder="Enter anime title in Russian or English (e.g. Kill Blue, Bleach)...">
+                <button id="downloader-search-submit" class="search-submit-btn" title="Search torrents">
+                    <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                        <circle cx="11" cy="11" r="8"/>
+                        <line x1="21" y1="21" x2="16.65" y2="16.65"/>
+                    </svg>
+                </button>
+            </div>
+            
+            <div class="watching-dashboard-layout" style="grid-template-columns: 1.25fr 0.75fr; gap: 24px;">
+                <!-- Left: Torrent Search Results -->
+                <div class="watching-section">
+                    <h3 class="watching-section-title">Nya :3</h3>
+                    <div id="downloader-results-list" class="history-list" style="max-height: 520px; overflow-y: auto; padding-right: 6px;">
+                        <div class="empty-playlist" style="padding: 40px 0;">
+                            <p>Enter a search query above to start.</p>
+                        </div>
+                    </div>
+                </div>
+                
+                <!-- Right: AI Expert Analysis & Recommendation -->
+                <div class="watching-section">
+                    <h3 class="watching-section-title">Analysis</h3>
+                    <div id="downloader-ai-verdict" class="downloader-ai-verdict" style="background: rgba(124, 92, 252, 0.01); border: 1px solid rgba(124, 92, 252, 0.08); border-radius: 8px; padding: 20px; font-size: 0.72rem; color: rgba(255,255,255,0.8); line-height: 1.5; height: 520px; overflow-y: auto; white-space: pre-line; padding-right: 8px;">
+                        <p style="color: var(--text-muted); text-align: center; margin-top: 40px;">Enter a search query for AI analysis.</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- One-Click RAW/DUB Merger Workflow -->
+        <div id="merger-view" class="search-view hidden" style="padding-top: 24px;">
+            <div class="merger-shell">
+                <div class="merger-hero">
+                    <div>
+                        <h2>One-Click Dub Merger</h2>
+                        <p>Download your chosen DUB into the <b>dub/</b> folder. The player will detect it, match RAW + DUB, autosync, merge, and organize the final episode.</p>
+                    </div>
+                    <div class="merger-status-pill" id="merger-watch-status">Watcher idle</div>
+                </div>
+
+                <div class="merger-simple-actions">
+                    <button id="merger-smart-auto-btn" class="action-btn primary-action big-action">Smart Auto</button>
+                    <button id="merger-open-dub-source-btn" class="action-btn">Open DUB Browser</button>
+                    <span class="merger-status-pill">Auto scanner on</span>
+                    <button id="merger-advanced-toggle-btn" class="action-btn">Advanced ▾</button>
+                    <label class="merger-check compact"><input type="checkbox" id="merger-voice-mode"> Demucs</label>
+                    <label class="merger-check compact">Sync
+                        <select id="merger-sync-mode" class="merger-select">
+                            <option value="multipoint" selected>Auto Pro</option>
+                            <option value="global">Fast / Global</option>
+                        </select>
+                    </label>
+                </div>
+
+                <div id="merger-advanced-actions" class="merger-actions advanced hidden">
+                    <button id="merger-open-raw-btn" class="action-btn">Open raw/</button>
+                    <button id="merger-open-dub-btn" class="action-btn">Open dub/</button>
+                    <button id="merger-open-output-btn" class="action-btn">Open output/</button>
+                    <button id="merger-import-raw-btn" class="action-btn">Import Downloads → raw/</button>
+                    <button id="merger-import-dub-btn" class="action-btn">Import Downloads → dub/</button>
+                    <button id="merger-scan-btn" class="action-btn">Scan RAW / DUB</button>
+                    <button id="merger-oneclick-btn" class="action-btn">Merge Next</button>
+                    <button id="merger-merge-all-btn" class="action-btn">Merge All</button>
+                    <button id="merger-add-outputs-btn" class="action-btn">Add Outputs to Library</button>
+                </div>
+
+                <div class="merger-grid">
+                    <div class="merger-panel">
+                        <h3>Matched Episodes</h3>
+                        <div id="merger-pairs-list" class="merger-list"><p>No scan yet.</p></div>
+                    </div>
+                    <div class="merger-panel">
+                        <h3>Automation Log</h3>
+                        <div id="merger-log" class="merger-log"><p>Ready.</p></div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+
+        <!-- Immersive Slide-out Details Panel -->
+        <div id="details-panel" class="details-panel">
+            <button id="details-close-btn" class="details-close-btn">&times;</button>
+            <div id="details-content" class="details-content">
+                <!-- Injected via JS -->
+            </div>
+        </div>
+
+        <!-- HDRezka-Style Immersive Series Page View (Full Screen Cinematic Mode) -->
+        <div id="hdrezka-page" class="hdrezka-page hidden">
+            <!-- Background blurred poster -->
+            <div id="hdrezka-bg" class="hdrezka-bg"></div>
+            <div class="hdrezka-content-wrapper">
+                <div class="hdrezka-back-bar">
+                    <button id="hdrezka-back-btn" class="hdrezka-back-btn">
+                        <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                            <line x1="19" y1="12" x2="5" y2="12"></line>
+                            <polyline points="12 19 5 12 12 5"></polyline>
+                        </svg>
+                        <span>Back to Browse</span>
+                    </button>
+                </div>
+                
+                <div class="hdrezka-main-grid">
+                    <!-- Left Column: Poster & Lib Action -->
+                    <div class="hdrezka-left-col">
+                        <div class="hdrezka-poster-container">
+                            <img id="hdrezka-poster" src="" alt="Poster">
+                        </div>
+                        <button id="hdrezka-lib-btn" class="action-btn" style="width: 100%; margin-top: 16px; background: #7c5cfc; border-color: #7c5cfc; color: #fff; font-weight: 600; cursor: pointer;"></button>
+                        <button id="hdrezka-folder-btn" class="action-btn" style="width: 100%; margin-top: 8px; background: rgba(255,255,255,0.02); border-color: rgba(255,255,255,0.04); color: #fff; font-weight: 600; cursor: pointer;">Link Folder</button>
+                    </div>
+                    
+                    <!-- Right Column: Info, Episodes Grid & Franchise Chronology -->
+                    <div class="hdrezka-right-col">
+                        <div class="hdrezka-meta-block">
+                            <h1 id="hdrezka-title" class="hdrezka-title">Title</h1>
+                            <div id="hdrezka-alt-titles" class="hdrezka-alt-titles">Alternative titles</div>
+                            
+                            <div class="hdrezka-metadata-pills">
+                                <span id="hdrezka-type" class="meta-pill">TV</span>
+                                <span id="hdrezka-status" class="meta-pill">Airing</span>
+                                <span id="hdrezka-ep-count" class="meta-pill">12 Episodes</span>
+                            </div>
+                            
+                            <p id="hdrezka-synopsis" class="hdrezka-synopsis">Synopsis...</p>
+                            
+                            <!-- Premium Spec Grid for Rich Details -->
+                            <div class="hdrezka-spec-grid">
+                                <div class="hdrezka-spec-item"><strong>Studio:</strong> <span id="hdrezka-studio">-</span></div>
+                                <div class="hdrezka-spec-item"><strong>Genres:</strong> <span id="hdrezka-genres">-</span></div>
+                                <div class="hdrezka-spec-item"><strong>Source:</strong> <span id="hdrezka-source">-</span></div>
+                                <div class="hdrezka-spec-item"><strong>MAL Score:</strong> <span id="hdrezka-score">-</span></div>
+                            </div>
+                        </div>
+                        
+                        <!-- Interactive Seasons & Episodes Selector -->
+                        <div class="hdrezka-player-selector">
+                            <!-- Global Franchise Resume Tracker Banner -->
+                            <div id="hdrezka-franchise-resume-banner" class="hdrezka-franchise-resume-banner hidden">
+                                <div class="resume-banner-text">
+                                    <span class="resume-banner-label">CONTINUE FRANCHISE:</span>
+                                    <span id="hdrezka-resume-title" class="resume-banner-title">-</span>
+                                </div>
+                                <button id="hdrezka-resume-banner-btn" class="resume-banner-btn">Resume</button>
+                            </div>
+                            <div class="hdrezka-parts-header">
+                                <span>Correct Watch Order</span>
+                                <small>choose a franchise part</small>
+                            </div>
+                            <div class="hdrezka-seasons-bar" id="hdrezka-seasons-bar">
+                                <!-- Franchise parts / season tabs will be injected here -->
+                            </div>
+                            
+                            <div class="hdrezka-episodes-section">
+                                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 14px;">
+                                    <h3 id="hdrezka-episodes-title" style="font-size: 0.82rem; font-weight: 700; color: #fff; text-transform: uppercase; letter-spacing: 0.05em;">Episodes</h3>
+                                    <span id="hdrezka-linked-counter" style="font-size: 0.68rem; color: var(--text-muted); font-weight: 500;">0 / 12 linked</span>
+                                </div>
+                                <div class="hdrezka-episodes-grid" id="hdrezka-episodes-grid">
+                                    <!-- Episode buttons, e.g. [1] [2] [3]... will be injected here -->
+                                </div>
+
+                                <!-- Sleek HDRezka-Style Episode Details Card -->
+                                <div id="hdrezka-episode-desc-panel" class="hdrezka-episode-desc-panel hidden">
+                                    <h4 id="hdrezka-ep-desc-title" class="hdrezka-ep-desc-title">-</h4>
+                                    <div id="hdrezka-ep-desc-date" class="hdrezka-ep-desc-date">-</div>
+                                    <p id="hdrezka-ep-desc-text" class="hdrezka-ep-desc-text">-</p>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Sleek Custom Context Menu -->
+        <div id="custom-context-menu" class="custom-context-menu hidden">
+            <div class="context-item" id="context-open-details">Show info</div>
+            <div class="context-item" id="context-open-hdrezka">Open cinematic page</div>
+            <div class="context-item" id="context-play-first">Play Episode 1</div>
+            <div class="context-item" id="context-toggle-watched">Mark as watched</div>
+            <div class="context-divider"></div>
+            <div class="context-item remove-action" id="context-remove-lib">Remove from Library</div>
+        </div>
+
+
+        <!-- :3 AI Assistant Widget -->
+        <button id="ai-assistant-fab" class="ai-assistant-fab" title="AI Assistant">:3</button>
+        <div id="ai-assistant-panel" class="ai-assistant-panel hidden">
+            <div class="ai-assistant-header">
+                <div>
+                    <div class="ai-assistant-title">:3 Assistant</div>
+                    <div class="ai-assistant-subtitle">RAW, DUB, Merger, Library, recommendations</div>
+                </div>
+                <button id="ai-assistant-close" class="ai-assistant-close">&times;</button>
+            </div>
+            <div id="ai-assistant-messages" class="ai-assistant-messages">
+                <div class="ai-msg ai-msg-bot">Hi. Tell me what you want: “prepare Kill Blue 1-5”, “open DUB source”, “merge all”, or “recommend something like Prison School”.</div>
+            </div>
+            <div class="ai-assistant-chips">
+                <button data-prompt="Prepare the Merger workflow for the current files">Prepare Merger</button>
+                <button data-prompt="Find best RAW source for Kill Blue episodes 1-5">Best RAW 1-5</button>
+                <button data-prompt="get dub Kill Blue episode 1">Get DUB</button>
+            </div>
+            <div class="ai-assistant-input-row">
+                <input id="ai-assistant-input" type="text" placeholder="Ask :3 what to do...">
+                <button id="ai-assistant-send">Send</button>
+            </div>
+        </div>
+
+        <!-- Beautiful Interactive Hotkeys Overlay -->
+        <div id="hotkeys-overlay" class="hotkeys-overlay hidden">
+            <div class="hotkeys-content">
+                <h2 class="hotkeys-title">Player Hotkeys</h2>
+                <div class="hotkeys-grid">
+                    <div class="hotkeys-group-col">
+                        <h3>Playback</h3>
+                        <div class="hotkey-row"><span class="key-badge">Space</span> <span>Playback / Пауза</span></div>
+                        <div class="hotkey-row"><span class="key-badge">Shift + →</span> <span>Next episode</span></div>
+                        <div class="hotkey-row"><span class="key-badge">Shift + ←</span> <span>Previous episode</span></div>
+                        <div class="hotkey-row"><span class="key-badge">Esc</span> <span>Back to Browse</span></div>
+                    </div>
+                    <div class="hotkeys-group-col">
+                        <h3>Navigation</h3>
+                        <div class="hotkey-row"><span class="key-badge">→</span> <span>Forward 5 seconds</span></div>
+                        <div class="hotkey-row"><span class="key-badge">←</span> <span>Back 5 seconds</span></div>
+                        <div class="hotkey-row"><span class="key-badge">S</span> <span>Skip intro / outro</span></div>
+                        <div class="hotkey-row"><span class="key-badge">Z</span> <span>Anime Enhancer HD</span></div>
+                    </div>
+                    <div class="hotkeys-group-col">
+                        <h3>Sound & Screen</h3>
+                        <div class="hotkey-row"><span class="key-badge">F11 / F</span> <span>Fullscreen</span></div>
+                        <div class="hotkey-row"><span class="key-badge">A</span> <span>Соотношение сторон (Aspect)</span></div>
+                        <div class="hotkey-row"><span class="key-badge">C</span> <span>Load subtitles (.srt)</span></div>
+                        <div class="hotkey-row"><span class="key-badge">B</span> <span>Add timeline bookmark</span></div>
+                        <div class="hotkey-row"><span class="key-badge">?</span> <span>Show this help</span></div>
+                    </div>
+                </div>
+                <button id="hotkeys-close-btn" class="action-btn" style="margin-top: 24px; background: #7c5cfc; border-color: #7c5cfc; color: #fff; font-weight: 700;">Close</button>
+            </div>
+        </div>
+    </div>
+
+    <script src="/static/app.js?v=10.1"></script>
+</body>
+</html>

@@ -1,0 +1,11 @@
+.aider*
+.env
+
+*.mkv
+raw/
+output/
+dub/
+dist/
+data/pyinstaller/
+data/logs/
+keys.json
