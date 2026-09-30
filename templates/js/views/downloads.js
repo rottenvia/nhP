@@ -18,8 +18,8 @@ export const downloadsView = {
     const active = h('.stack');
     const activeSec = h('.panel', h('.section-head', h('h3', 'Active downloads'), h('button.btn.sm.ghost', { onClick: () => poll() }, icon('refresh', 14), 'Refresh')), active);
     el.append(h('.view-inner',
-      h('.toolbar', kinds, h('.spacer'), h('.search', { style: { width: 'min(560px,100%)' } }, icon('search'), input), h('button.btn.primary', { onClick: () => run() }, 'Search')),
-      h('.merger-grid', h('div', h('.section-head', h('h2', 'Releases'), status), list), h('.stack', h('.panel', h('h3', 'Verdict'), verdict), activeSec)),
+      h('.toolbar', h('.search', { style: { width: 'min(620px,100%)' } }, icon('search'), input), h('button.btn.primary', { onClick: () => run() }, 'Search'), h('.spacer'), kinds),
+      h('.merger-grid', h('div', h('.section-head', h('h2', 'Releases'), status), list), h('.side-col', h('.panel', h('h3', 'Verdict'), verdict), activeSec)),
     ));
     const renderKinds = () => { clear(kinds); for (const [v, l] of [['anime', 'Anime · Nyaa'], ['movie', 'Movies · Prowlarr'], ['show', 'Shows · Prowlarr']]) kinds.appendChild(h('button.chip', { class: v === kind ? 'is-active' : '', onClick: () => { kind = v; renderKinds(); } }, l)); };
     renderKinds();
@@ -28,8 +28,8 @@ export const downloadsView = {
     const run = async () => {
       const q = input.value.trim(); if (!q) return;
       const my = ++seq;
-      status.textContent = 'Searching…'; clear(list);
-      for (let i = 0; i < 4; i++) list.appendChild(h('.skeleton', { style: { height: '86px' } }));
+      status.textContent = ''; clear(list);
+      list.appendChild(h('.loading-row', h('.spinner'), h('span', kind === 'anime' ? 'Searching Nyaa and ranking releases…' : 'Searching Prowlarr indexers… this can take up to a minute')));
       let data;
       try { data = kind === 'anime' ? await rpc('search_nyaa_torrents', q, false) : await rpc('movie_raw_search', q); } catch (e) { data = { status: 'error', message: e.message }; }
       if (my !== seq) return;
@@ -44,7 +44,7 @@ export const downloadsView = {
       results.forEach((r, i) => list.appendChild(row(r, i === 0)));
     };
 
-    const row = (r, best) => h('.torrent-row', { style: best ? { borderColor: 'rgba(124,92,252,.5)' } : {} },
+    const row = (r, best) => h('.torrent-row', { class: best ? 'best' : '' },
       h('div', h('.name', r.title), h('.tags', best ? h('span.badge.accent', 'best pick') : null, r.type ? h('span.badge', r.type) : null, r.source ? h('span.badge', r.source) : null, r.group ? h('span.badge', r.group) : null, r.indexer ? h('span.badge', r.indexer) : null, r.censorship === 'UNCENSORED' ? h('span.badge.warn', 'uncensored') : null), r.comment ? h('p.small.muted', { style: { marginTop: '6px' } }, r.comment) : null,
         h('.stats', h('span', 'Size ', h('b', r.size)), h('span', 'Seeds ', h('b', String(r.seeders ?? '?'))), r.leechers != null ? h('span', 'Peers ', h('b', String(r.leechers))) : null)),
       h('.end', h('span.score', String(Math.round(r.score || 0))), h('button.btn.primary.sm', { onClick: () => download(r) }, icon('download', 14), 'Download'), h('button.btn.sm.ghost', { onClick: (e) => contextMenu(e.clientX, e.clientY, [

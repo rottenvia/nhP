@@ -1,5 +1,5 @@
 // :3 assistant drawer. Streams agent events and executes UI commands the agent queues.
-import { h, icon, $, clear } from '../core/dom.js';
+import { h, icon, $, clear, smile } from '../core/dom.js';
 import { getJSON, postJSON, streamJSON } from '../core/api.js';
 import { store } from '../core/store.js';
 import { router } from '../core/router.js';
@@ -32,7 +32,7 @@ function build() {
   input.addEventListener('input', () => { input.style.height = 'auto'; input.style.height = Math.min(140, input.scrollHeight) + 'px'; });
   headSub = h('small', 'Loading…');
   root.append(
-    h('.a-head', h('.face', ':3'), h('.grow', h('b', 'Assistant'), headSub), h('button.icon-btn', { title: 'Settings', onClick: () => router.go('settings', { section: 'ai' }) }, icon('settings', 16)), h('button.icon-btn', { title: 'Close', onClick: () => toggle(false) }, icon('x', 16))),
+    h('.a-head', smile('logo'), h('.grow', h('b', 'Assistant'), headSub), h('button.icon-btn', { title: 'Settings', onClick: () => router.go('settings', { section: 'ai' }) }, icon('settings', 16)), h('button.icon-btn', { title: 'Close', onClick: () => toggle(false) }, icon('x', 16))),
     msgs, chips,
     h('.a-input', input, h('button.btn.primary.icon', { title: 'Send', onClick: () => send(input.value) }, icon('chevron', 18))),
   );
@@ -60,7 +60,40 @@ async function loadHistory() {
   scroll();
 }
 
-function addMsg(kind, text) { const el = h('.msg', { class: kind }, text); msgs.appendChild(el); scroll(); return el; }
+function addMsg(kind, text) { const el = h('.msg', { class: kind }); if (kind === 'bot') el.appendChild(renderMarkdown(text)); else el.textContent = text; msgs.appendChild(el); scroll(); return el; }
+
+/** Minimal, safe markdown: paragraphs, bullet/numbered lists, **bold**, `code`, line breaks. */
+function renderMarkdown(text) {
+  const frag = document.createDocumentFragment();
+  const blocks = String(text || '').replace(/\r/g, '').split(/\n{2,}/);
+  for (const block of blocks) {
+    const lines = block.split('\n');
+    if (lines.every(l => /^\s*(?:[-*•]|\d+[.)])\s+/.test(l))) {
+      const ordered = /^\s*\d+[.)]/.test(lines[0]);
+      const list = h(ordered ? 'ol' : 'ul');
+      for (const l of lines) list.appendChild(h('li', ...inline(l.replace(/^\s*(?:[-*•]|\d+[.)])\s+/, ''))));
+      frag.appendChild(list);
+    } else {
+      const p = h('p');
+      lines.forEach((l, i) => { if (i) p.appendChild(document.createElement('br')); p.append(...inline(l)); });
+      frag.appendChild(p);
+    }
+  }
+  return frag;
+}
+function inline(text) {
+  const out = [];
+  const re = /(\*\*[^*]+\*\*|`[^`]+`)/g;
+  let last = 0, m;
+  while ((m = re.exec(text))) {
+    if (m.index > last) out.push(text.slice(last, m.index));
+    const tok = m[0];
+    if (tok.startsWith('**')) out.push(h('strong', tok.slice(2, -2))); else out.push(h('code', tok.slice(1, -1)));
+    last = m.index + tok.length;
+  }
+  if (last < text.length) out.push(text.slice(last));
+  return out;
+}
 function scroll() { msgs.scrollTop = msgs.scrollHeight; }
 
 function context() {
@@ -80,7 +113,7 @@ async function send(text) {
   busy = true;
   input.value = ''; input.style.height = 'auto';
   addMsg('user', text);
-  const thinking = h('.msg.thinking', h('i'), h('i'), h('i'));
+  const thinking = h('.typing', h('span'), h('span'), h('span'));
   msgs.appendChild(thinking); scroll();
   const toolEls = new Map();
   try {

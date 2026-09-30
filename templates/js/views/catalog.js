@@ -1,4 +1,4 @@
-import { h, icon, clear, renderList, debounce } from '../core/dom.js';
+import { h, icon, clear, renderList, debounce, smile } from '../core/dom.js';
 import { meta } from '../core/api.js';
 import { store } from '../core/store.js';
 import { mediaCard, addToLibrary, openTitle } from '../features/libraryOps.js';
@@ -39,7 +39,7 @@ export const catalogView = {
       const items = r.items || [];
       status.textContent = r.status === 'error' ? `Search failed: ${r.message}` : `${items.length} result${items.length === 1 ? '' : 's'}${r.cached ? ' · cached' : ''}`;
       renderList(grid, items, { key: i => `${i.category}:${i.id}`, create: card });
-      if (!items.length && r.status !== 'error') { clear(grid); grid.appendChild(h('.empty', { style: { gridColumn: '1 / -1' } }, h('.face', ':3'), h('h3', 'No results'), h('p', 'Try the original title or another category.'))); }
+      if (!items.length && r.status !== 'error') { clear(grid); grid.appendChild(h('.empty', { style: { gridColumn: '1 / -1' } }, smile(), h('h3', 'No results'), h('p', 'Try the original title or another category.'))); }
     };
     input.addEventListener('input', debounce(() => { query = input.value; run(); }, 320));
     input.addEventListener('keydown', (e) => { if (e.key === 'Enter') { query = input.value; run(); } });

@@ -13,14 +13,14 @@ export const mergerView = {
     const log = h('.log');
     const pairs = h('.list');
     const statusPill = h('span.badge', 'idle');
-    const watchBtn = h('button.btn.ghost', { onClick: () => toggleWatcher() }, icon('eye', 16), 'Watch Downloads');
-    const voice = h('select.select', { style: { width: '160px' } }, h('option', { value: 'off' }, 'Voice: off'), h('option', { value: 'demucs' }, 'Voice: Demucs overlay'));
-    const sync = h('select.select', { style: { width: '160px' } }, h('option', { value: 'auto' }, 'Sync: auto'), h('option', { value: 'multipoint' }, 'Sync: multipoint'), h('option', { value: 'global' }, 'Sync: global'));
+    const watchBtn = h('button.btn.lg.ghost', { onClick: () => toggleWatcher() }, icon('eye', 18), 'Watch Downloads');
+    const voice = h('select.select', { style: { width: '190px' } }, h('option', { value: 'off' }, 'Voice: off'), h('option', { value: 'demucs' }, 'Voice: Demucs overlay'));
+    const sync = h('select.select', { style: { width: '190px' } }, h('option', { value: 'auto' }, 'Sync: auto'), h('option', { value: 'multipoint' }, 'Sync: multipoint'), h('option', { value: 'global' }, 'Sync: global'));
     const folders = h('.hstack.wrap');
     el.append(h('.view-inner',
-      h('.hero', { style: { padding: '22px 26px', marginBottom: '20px' } }, h('div', h('h2', 'Dub merger'), h('p', 'Put the RAW video in raw/ and the dub (audio or video) in dub/. The merger matches episodes by number, auto-syncs the audio, and writes a dubbed MKV to your library.'),
-        h('.actions', h('button.btn.primary.lg', { onClick: () => smartAuto() }, icon('sparkles', 18), 'Smart auto'), h('button.btn', { onClick: () => doScan() }, icon('refresh', 16), 'Scan'), h('button.btn', { onClick: () => mergeAll() }, icon('merge', 16), 'Merge all'), watchBtn, voice, sync)),
-        h('.stack', { style: { alignItems: 'flex-end' } }, statusPill)),
+      h('.hero', { style: { minHeight: '0', padding: '28px 32px', marginBottom: '20px' } }, h('div', h('.kicker', 'Merger'), h('h2', 'Merge a dub into your episodes'), h('p', 'RAW video goes in raw/, the dub in dub/. Episodes are matched by number, audio is auto-synced, and a dubbed MKV lands in your library.'),
+        h('.actions', h('button.btn.primary.lg', { onClick: () => smartAuto() }, icon('sparkles', 18), 'Smart auto'), h('button.btn.lg', { onClick: () => doScan() }, icon('refresh', 18), 'Scan'), h('button.btn.lg', { onClick: () => mergeAll() }, icon('merge', 18), 'Merge all'), watchBtn)),
+        h('.stack', { style: { alignItems: 'flex-end', gap: '10px' } }, statusPill, voice, sync)),
       h('.merger-grid',
         h('div', h('.panel', h('.section-head', h('h3', 'Matched episodes'), h('.actions', h('button.btn.sm.ghost', { onClick: () => importDownloads('raw_folder') }, 'Import ↓ raw'), h('button.btn.sm.ghost', { onClick: () => importDownloads('dub_folder') }, 'Import ↓ dub'))), pairs),
           h('.panel', { style: { marginTop: '18px' } }, h('h3', 'Folders'), folders)),
@@ -38,7 +38,7 @@ export const mergerView = {
 
     const renderPairs = () => {
       const m = scan?.matched || [];
-      renderList(pairs, m, { key: p => `${p.season || 1}:${p.episode}:${p.raw}`, create: p => h('.pair', h('.ep', `E${String(p.episode).padStart(2, '0')}`), h('div', h('small', { title: p.raw }, 'RAW · ' + baseName(p.raw)), h('small', { title: p.dub }, 'DUB · ' + baseName(p.dub)))) });
+      renderList(pairs, m, { key: p => `${p.raw?.season || 1}:${p.raw?.episode}:${p.raw?.path}`, create: p => { const ep = p.raw?.episode ?? '?'; const se = p.raw?.season && p.raw.season > 1 ? `S${p.raw.season}` : ''; return h('.pair', h('.ep', `${se}E${String(ep).padStart(2, '0')}`), h('div', h('small', { title: p.raw?.path }, h('b', 'RAW '), p.raw?.name || ''), h('small', { title: p.dub?.path }, h('b', 'DUB '), p.dub?.name || ''))); } });
       if (!m.length) { clear(pairs); pairs.appendChild(h('p.muted.small', scan ? `${scan.raw?.length || 0} raw · ${scan.dub?.length || 0} dub files, no matching episode numbers.` : 'Scan to find pairs.')); }
       if (scan?.invalid?.length) for (const inv of scan.invalid) pairs.appendChild(h('p.small', { style: { color: 'var(--danger)' } }, `Skipped ${inv.folder}/${inv.name}: ${inv.reason}`));
     };
@@ -67,7 +67,7 @@ export const mergerView = {
       if (!r) { line('Merge failed: backend error', 'err'); setStatus('error', 'danger'); return; }
       if (r.status === 'empty') { line(r.message || 'No pairs.'); setStatus('no pairs'); return; }
       if (r.status !== 'success') { line('Merge error: ' + (r.message || ''), 'err'); setStatus('error', 'danger'); return; }
-      for (const res of r.results || []) { const ok = res.result?.status === 'success' || res.result?.ok; line(`E${res.pair?.episode}: ${ok ? 'merged → ' + baseName(res.result?.output || res.result?.organized || '') : 'failed · ' + (res.result?.message || res.result?.error || '')}`, ok ? 'ok' : 'err'); }
+      for (const res of r.results || []) { const ok = res.result?.status === 'success' || res.result?.ok; const ep = res.pair?.raw?.episode ?? res.pair?.episode; line(`E${ep}: ${ok ? 'merged → ' + baseName(res.result?.output || res.result?.organized || res.result?.path || '') : 'failed · ' + (res.result?.message || res.result?.error || '')}`, ok ? 'ok' : 'err'); }
       setStatus('done', 'ok'); toast('Merge finished', { kind: 'ok' });
       doScan(true);
     };
@@ -87,8 +87,8 @@ export const mergerView = {
     };
 
     const toggleWatcher = () => {
-      if (watcher) { clearInterval(watcher); watcher = null; watchBtn.classList.remove('is-active'); watchBtn.replaceChildren(icon('eye', 16), 'Watch Downloads'); line('Watcher stopped.'); return; }
-      watchBtn.classList.add('is-active'); watchBtn.replaceChildren(icon('eyeOff', 16), 'Watching…'); line('Watching ~/Downloads for dub files every 15 s.');
+      if (watcher) { clearInterval(watcher); watcher = null; watchBtn.classList.remove('is-active'); watchBtn.replaceChildren(icon('eye', 18), 'Watch Downloads'); line('Watcher stopped.'); return; }
+      watchBtn.classList.add('is-active'); watchBtn.replaceChildren(icon('eyeOff', 18), 'Watching…'); line('Watching ~/Downloads for dub files every 15 s.');
       watcher = setInterval(async () => { const r = await importDownloads('dub_folder', true); if ((r?.moved || r?.imported || []).length) { toast('New dub file imported', { kind: 'ok' }); await doScan(true); if (scan?.matched?.length && !busy) mergeAll(); } }, 15000);
     };
 

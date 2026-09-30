@@ -153,13 +153,12 @@ export function mediaCard(item, { inLibrary = null, onClick, showProgress = true
   const lib = inLibrary ?? store.inLibrary(item.id, item.category);
   const p = showProgress ? store.getProgress(item.id) : null;
   const poster = posterImg(item.poster, item.title);
-  const badges = h('.top-badges');
-  if (item.category) badges.appendChild(h('span.badge', item.category === 'show' ? 'TV' : item.category));
-  if (item.status === 'airing') badges.appendChild(h('span.badge', { style: { color: '#8ff0c9' } }, 'airing'));
-  poster.appendChild(badges);
+  if (item.status === 'airing') poster.appendChild(h('.flag', { title: 'Airing' }));
   poster.appendChild(h('.play', h('span', icon('play', 18))));
   if (p && p.duration) poster.appendChild(h('.progress', h('i', { style: { width: `${Math.min(100, p.time / p.duration * 100)}%` } })));
-  const subText = sub ?? [item.year, item.category === 'movie' ? null : (item.episodes_count ? `${item.episodes_count} ep` : (item.episodes ? `${item.episodes} ep` : null)), item.score ? `★ ${item.score}` : null].filter(Boolean).join(' · ');
+  const kind = item.category === 'show' ? 'Series' : item.category === 'anime' ? 'Anime' : 'Movie';
+  const eps = item.category === 'movie' ? null : (item.episodes_count ? `${item.episodes_count} ep` : (typeof item.episodes === 'number' && item.episodes ? `${item.episodes} ep` : null));
+  const subText = sub ?? [kind, item.year, eps, item.score ? `★ ${item.score}` : null].filter(Boolean).join(' · ');
   const card = h('.card', { tabindex: 0, dataset: { id: item.id, category: item.category } }, poster, h('.meta', h('.title', item.title), h('.sub', subText)));
   card.addEventListener('click', () => onClick ? onClick(item) : (lib ? openTitle(store.findItem(item.id, item.category) || item) : openTitle(item)));
   card.addEventListener('keydown', (e) => { if (e.key === 'Enter') card.click(); });

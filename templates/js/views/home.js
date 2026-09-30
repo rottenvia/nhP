@@ -1,4 +1,4 @@
-import { h, icon, clear, renderList, fmtTime, fmtAgo } from '../core/dom.js';
+import { h, icon, clear, renderList, fmtTime, fmtAgo, smile } from '../core/dom.js';
 import { store } from '../core/store.js';
 import { router } from '../core/router.js';
 import { pickFiles } from '../core/api.js';
@@ -31,7 +31,7 @@ export const homeView = {
     };
     render();
     store.on('library', render); store.on('progress', render); store.on('ready', render);
-    player.addEventListener('state', () => hero.querySelector('.vinyl')?.classList.toggle('paused', player.video.paused));
+    player.addEventListener('state', () => renderHero(hero));
     return { show: render, refresh: render };
   },
 };
@@ -43,24 +43,25 @@ function renderHero(hero) {
   const prog = store.state.progress[0];
   const item = prog ? store.findItem(prog.id, prog.category) : null;
   const st = player.getState();
+  const art = (it) => { if (!it?.poster) return h('.art.smile-tile', { html: VINYL }); const wrap = h('.art'); const img = h('img', { src: it.poster, alt: '', onError: () => { wrap.className = 'art smile-tile'; wrap.innerHTML = VINYL; } }); wrap.appendChild(img); return wrap; };
   if (st.open && st.track) {
     hero.append(h('.bg', { style: { backgroundImage: `url("${st.item?.backdrop || st.item?.poster || ''}")` } }),
-      h('div', h('small.muted', 'Now playing'), h('h2', st.item ? st.item.title : st.track.name), h('p', st.item && st.epNum ? `Episode ${st.epNum} · ${fmtTime(st.time)} / ${fmtTime(st.duration)}` : fmtTime(st.time)),
-        h('.actions', h('button.btn.primary', { onClick: () => player.expand() }, icon('fullscreen', 16), 'Open player'), h('button.btn.ghost', { onClick: () => player.toggle() }, icon(st.paused ? 'play' : 'pause', 16), st.paused ? 'Play' : 'Pause'))),
-      h('.vinyl', { class: st.paused ? 'paused' : '', html: VINYL }));
+      h('div', h('.kicker', 'Now playing'), h('h2', st.item ? st.item.title : st.track.name), h('p', st.item && st.epNum ? `Episode ${st.epNum} · ${fmtTime(st.time)} of ${fmtTime(st.duration)}` : fmtTime(st.time)),
+        h('.actions', h('button.btn.primary.lg', { onClick: () => player.expand() }, icon('fullscreen', 18), 'Open player'), h('button.btn.lg', { onClick: () => player.toggle() }, icon(st.paused ? 'play' : 'pause', 18), st.paused ? 'Play' : 'Pause'))),
+      art(st.item));
     return;
   }
   if (item && prog) {
     const pct = prog.duration ? Math.round(prog.time / prog.duration * 100) : 0;
     hero.append(h('.bg', { style: { backgroundImage: `url("${item.backdrop || item.poster || ''}")` } }),
-      h('div', h('small.muted', 'Continue watching'), h('h2', item.title), h('p', `Episode ${prog.epNum} · ${fmtTime(prog.time)} left off · ${pct}%`),
-        h('.actions', h('button.btn.primary', { onClick: () => playEpisode(item, prog.epNum, { startTime: prog.time }) }, icon('play', 16), 'Resume'), h('button.btn.ghost', { onClick: () => openTitle(item) }, 'Title page'))),
-      h('.vinyl.paused', { html: VINYL }));
+      h('div', h('.kicker', 'Continue watching'), h('h2', item.title), h('p', `Episode ${prog.epNum} · ${fmtTime(prog.time)} watched · ${pct}%`),
+        h('.actions', h('button.btn.primary.lg', { onClick: () => playEpisode(item, prog.epNum, { startTime: prog.time }) }, icon('play', 18), 'Resume'), h('button.btn.lg', { onClick: () => openTitle(item) }, 'Details'))),
+      art(item));
     return;
   }
-  hero.append(h('div', h('h2', 'Welcome back'), h('p', 'Open a file, search the catalog to build your library, or ask the assistant what to watch.'),
-    h('.actions', h('button.btn.primary', { onClick: async () => { const f = await pickFiles({ multiple: true }); if (f.length) player.open(f, { index: 0 }); } }, icon('folder', 16), 'Open files'), h('button.btn.ghost', { onClick: () => router.go('catalog') }, icon('search', 16), 'Browse catalog'))),
-    h('.vinyl.paused', { html: VINYL }));
+  hero.append(h('div', h('.kicker', 'Welcome'), h('h2', 'What do you want to watch?'), h('p', 'Open a file, build your library from the catalog, or ask the assistant to find something for you.'),
+    h('.actions', h('button.btn.primary.lg', { onClick: async () => { const f = await pickFiles({ multiple: true }); if (f.length) player.open(f, { index: 0 }); } }, icon('folder', 18), 'Open files'), h('button.btn.lg', { onClick: () => router.go('catalog') }, icon('search', 18), 'Browse catalog'))),
+    h('.art.smile-tile', { html: VINYL }));
 }
 
 function renderContinue(sec) {
@@ -77,7 +78,7 @@ function renderRecent(sec) {
   clear(sec);
   const items = store.allItems().sort((a, b) => (b.added_at || 0) - (a.added_at || 0)).slice(0, 14);
   sec.append(h('.section-head', h('h2', 'Library'), h('span.sub', `${store.allItems().length} titles`), h('button.btn.sm.ghost', { onClick: () => router.go('library') }, 'Open library')));
-  if (!items.length) { sec.appendChild(h('.empty', h('.face', ':3'), h('h3', 'Your library is empty'), h('p', 'Search the catalog and add titles, then link your files.'), h('button.btn.primary', { onClick: () => router.go('catalog') }, 'Browse catalog'))); return; }
+  if (!items.length) { sec.appendChild(h('.empty', smile(), h('h3', 'Your library is empty'), h('p', 'Search the catalog and add titles, then link your files.'), h('button.btn.primary', { onClick: () => router.go('catalog') }, 'Browse catalog'))); return; }
   const row = h('.row-scroll');
   items.forEach(i => row.appendChild(mediaCard(i)));
   sec.appendChild(row);

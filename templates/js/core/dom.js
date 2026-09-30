@@ -1,6 +1,9 @@
 // Tiny DOM toolkit: hyperscript, keyed list reconciliation, formatting helpers.
 
 const SVG_NS = 'http://www.w3.org/2000/svg';
+export const SMILEY_SVG = '<svg viewBox="0 0 24 24"><path d="M12.1 2.3 C17.3 2.1, 21.8 6.5, 21.9 11.9 C22.0 17.3, 17.1 21.9, 11.8 21.7 C6.4 21.5, 2.2 16.8, 2.3 11.4 C2.4 6.1, 6.9 2.5, 12.1 2.3"/><g class="eyes"><path d="M8.5 9.5 A 0.8 1 0 1 1 8.5 9.4" fill="currentColor"/><path d="M15.2 10.2 A 1 0.8 0 1 1 15.2 10.1" fill="currentColor"/></g><path d="M7.5 14.5 C9.2 17.2, 14.8 16.8, 16.5 13.8"/></svg>';
+/** The smiley mark. cls: 'logo' (gradient tile) or 'smile' (plain stroke). */
+export function smile(cls = 'smile', size = null) { const el = h('span', { class: cls, html: SMILEY_SVG }); if (size) { el.style.width = el.style.height = size + 'px'; } return el; }
 
 /** h('div.cls#id', {attrs}, ...children) */
 export function h(tag, attrs, ...children) {
@@ -170,7 +173,7 @@ export function baseName(path) {
 /** Poster image with skeleton, lazy loading and graceful fallback. */
 export function posterImg(src, alt = '') {
   const wrap = h('.poster');
-  const fb = h('.fallback', ':3');
+  const fb = h('.fallback', { html: SMILEY_SVG });
   wrap.appendChild(fb);
   if (src) {
     const img = h('img', { alt, loading: 'lazy', decoding: 'async', referrerPolicy: 'no-referrer' });

@@ -1,6 +1,6 @@
 // Full-screen title page: poster, facts, franchise parts (anime), seasons (shows), episode grid,
 // episode list with descriptions, linking and playback.
-import { h, icon, $, clear, renderList, fmtTime, baseName, posterImg } from '../core/dom.js';
+import { h, icon, $, clear, renderList, fmtTime, baseName, posterImg, smile, append } from '../core/dom.js';
 import { meta } from '../core/api.js';
 import { store } from '../core/store.js';
 import { toast, contextMenu, confirm } from '../core/ui.js';
@@ -54,17 +54,28 @@ function render() {
   const item = current; if (!item) return;
   clear(root);
   const backdrop = h('.backdrop', { class: item.backdrop ? '' : 'blur', style: { backgroundImage: `url("${item.backdrop || item.poster}")` } });
-  const posterCol = h('.poster-col', posterImg(item.poster, item.title), h('.stack.actions-col'));
-  const head = h('.head', posterCol, h('div',
+  const kind = item.category === 'show' ? 'Series' : item.category === 'anime' ? 'Anime' : 'Movie';
+  const meta = h('.meta-line',
+    h('span', kind + (item.type && !['TV', 'Movie'].includes(item.type) ? ` · ${item.type}` : '')),
+    item.year ? h('span', String(item.year)) : null,
+    item.episodes_count && item.category !== 'movie' ? h('span', `${item.episodes_count} episodes`) : null,
+    item.runtime ? h('span', `${item.runtime} min`) : null,
+    item.score ? h('span', `★ ${item.score}`) : null,
+    item.studio ? h('span', item.studio) : null,
+    item.status === 'airing' ? h('span.airing', 'Airing') : (item.status === 'upcoming' ? h('span', 'Upcoming') : null),
+  );
+  const info = h('div',
     h('h1', item.title),
     item.title_original && item.title_original !== item.title ? h('.alt', item.title_original) : null,
-    h('.pills', h('span.badge.accent', item.category === 'show' ? 'TV Show' : item.category), item.type && item.type !== 'TV' ? h('span.badge', item.type) : null, item.status && item.status !== 'unknown' ? h('span.badge', { class: item.status === 'airing' ? 'ok' : '' }, item.status) : null, item.year ? h('span.badge', String(item.year)) : null, item.episodes_count ? h('span.badge', `${item.episodes_count} episodes`) : null, item.score ? h('span.badge', `★ ${item.score}`) : null),
+    meta,
+    item.genres?.length ? h('.genres', ...item.genres.slice(0, 6).map(g => h('span', g))) : null,
     synopsisEl(item.synopsis),
-    factsEl(item),
-    h('.parts-wrap'),
-    h('.episodes-wrap'),
-  ));
-  root.append(backdrop, h('.content', h('.top', h('button.btn.ghost', { onClick: close }, icon('back', 16), 'Back'), h('.grow'), h('button.btn.ghost.sm', { onClick: () => refreshMetadata(store.findItem(item.id, item.category) || item) }, icon('refresh', 14), 'Refresh')), head));
+    h('.actions'),
+  );
+  root.append(backdrop, h('.scrim'), h('.content',
+    h('.top', h('button.btn.ghost', { onClick: close }, icon('back', 16), 'Back'), h('.grow'), h('button.btn.ghost.sm', { onClick: () => refreshMetadata(store.findItem(item.id, item.category) || item) }, icon('refresh', 14), 'Refresh')),
+    h('.hero-t', posterImg(item.poster, item.title), info),
+    h('.body', h('.parts-wrap'), h('.episodes-wrap'))));
   renderActions();
   renderParts();
   renderEpisodes();
@@ -76,25 +87,37 @@ function factsEl(item) {
   return facts.length ? h('dl.facts', ...facts) : null;
 }
 function synopsisEl(text) {
-  if (!text) return h('p.synopsis.muted', 'No synopsis.');
+  if (!text) return h('p.synopsis.muted', 'No synopsis available.');
   const p = h('p.synopsis.clamp', text);
-  if (text.length > 320) p.addEventListener('click', () => p.classList.toggle('clamp'));
-  return p;
+  const wrap = h('div', p);
+  if (text.length > 260) {
+    const more = h('span.more', 'Read more');
+    more.addEventListener('click', () => { const c = p.classList.toggle('clamp'); more.textContent = c ? 'Read more' : 'Show less'; });
+    wrap.appendChild(more);
+  }
+  return wrap;
 }
 
 function renderActions() {
-  const item = current; const col = root.querySelector('.actions-col'); if (!col) return;
+  const item = current; const col = root.querySelector('.actions'); if (!col) return;
   clear(col);
   const lib = store.findItem(item.id, item.category);
   if (lib) {
     const prog = store.getProgress(lib.id);
     const hasFiles = lib.episodes.some(e => e.path);
-    col.append(
-      h('button.btn.primary.lg', { onClick: () => resumeItem(lib), disabled: !hasFiles && lib.category !== 'movie' }, icon('play'), prog ? `Resume Ep ${prog.epNum} · ${fmtTime(prog.time)}` : (hasFiles ? 'Play' : 'Play')),
-      h('button.btn', { onClick: () => linkFolder(lib) }, icon('folder', 16), 'Link folder'),
-      h('button.btn', { onClick: () => linkMultipleFiles(lib) }, icon('link', 16), 'Link files'),
-      h('button.btn.ghost.danger', { onClick: async () => { if (await removeFromLibrary(lib)) close(); } }, icon('trash', 16), 'Remove'),
-    );
+    append(col, [
+      h('button.btn.primary.lg', { onClick: () => resumeItem(lib) }, icon('play'), prog ? `Resume · Ep ${prog.epNum}` : (hasFiles ? 'Play' : 'Play')),
+      h('button.btn.lg', { onClick: () => linkFolder(lib) }, icon('folder'), 'Link folder'),
+      h('button.btn.lg.icon', { title: 'Link files', onClick: () => linkMultipleFiles(lib) }, icon('link')),
+      h('button.btn.lg.icon.ghost', { title: 'More', onClick: (e) => contextMenu(e.clientX, e.clientY, [
+        { label: 'Link files…', icon: 'link', onClick: () => linkMultipleFiles(lib) },
+        { label: 'Refresh metadata', icon: 'refresh', onClick: () => refreshMetadata(lib) },
+        { label: 'Mark all watched', icon: 'check', onClick: () => { lib.episodes.forEach(ep => store.setWatched(lib.id, ep.num, true)); store.removeProgress(lib.id); } },
+        { sep: true },
+        { label: 'Remove from library', icon: 'trash', danger: true, onClick: async () => { if (await removeFromLibrary(lib)) close(); } },
+      ]) }, icon('more')),
+      prog ? h('span.muted.small', { style: { marginLeft: '6px' } }, `${fmtTime(prog.time)} watched`) : null,
+    ]);
   } else {
     col.append(h('button.btn.primary.lg', { onClick: async () => { const added = await addToLibrary(item); current = added; render(); } }, icon('plus'), 'Add to library'));
   }
@@ -115,7 +138,7 @@ function renderParts() {
   const item = current; const wrap = root.querySelector('.parts-wrap'); if (!wrap) return;
   clear(wrap);
   if (item.category === 'show' && item.seasons?.length > 1) {
-    wrap.append(h('.section-head', { style: { marginTop: '22px' } }, h('h2', 'Seasons'), h('span.sub', `${item.seasons.length} seasons`)));
+    wrap.append(h('.section-head', h('h2', 'Seasons'), h('span.sub', `${item.seasons.length} seasons`)));
     const bar = h('.parts');
     for (const s of item.seasons) bar.appendChild(h('button.part', { class: s.season === activeSeason ? 'is-active' : '', onClick: () => { activeSeason = s.season; renderParts(); renderEpisodes(); loadEpisodeDetails(item); } }, h('span.n', `S${s.season}`), h('div', h('b', s.name || `Season ${s.season}`), h('small', `${s.episodes} ep${s.air_date ? ' · ' + s.air_date.slice(0, 4) : ''}`))));
     wrap.appendChild(bar);
@@ -123,7 +146,7 @@ function renderParts() {
   }
   const parts = partsCache.get(item.id) || [];
   if (parts.length < 2) return;
-  wrap.append(h('.section-head', { style: { marginTop: '22px' } }, h('h2', 'Watch order'), h('span.sub', 'Franchise parts in chronological order')));
+  wrap.append(h('.section-head', h('h2', 'Watch order'), h('span.sub', 'Franchise parts in chronological order')));
   const bar = h('.parts');
   parts.forEach((p, i) => bar.appendChild(h('button.part', { class: String(p.id) === String(item.id) ? 'is-active' : '', title: p.title, onClick: () => openPart(p) },
     h('span.n', String(i + 1).padStart(2, '0')), h('div', h('b', p.title), h('small', [p.type, p.episodes ? `${p.episodes} ep` : null, p.year, p.relation !== 'main' ? p.relation : null].filter(Boolean).join(' · '))))));
@@ -172,7 +195,7 @@ function renderEpisodes() {
   const key = item.category === 'show' ? `${item.id}:s${activeSeason}` : String(item.id);
   const details = epDetails.get(key) || [];
   const linkedCount = (lib?.episodes || []).filter(e => e.path).length;
-  wrap.append(h('.section-head', { style: { marginTop: '22px' } }, h('h2', item.category === 'movie' ? 'Movie' : 'Episodes'), h('span.linked-counter', lib ? `${linkedCount} / ${lib.episodes_count || total} linked` : 'Add to library to link files')));
+  wrap.append(h('.section-head', { style: { marginTop: root.querySelector('.parts-wrap')?.childElementCount ? '28px' : '0' } }, h('h2', item.category === 'movie' ? 'Movie' : 'Episodes'), h('span.linked-counter', lib ? `${linkedCount} of ${lib.episodes_count || total} linked` : '')));
   if (!total) { wrap.appendChild(h('.empty', h('h3', 'Episode count unknown'), h('p', 'Link files to create episodes.'))); return; }
   const grid = h('.episodes');
   const prog = lib ? store.getProgress(lib.id) : null;
@@ -194,9 +217,9 @@ function renderEpisodes() {
     for (const d of details.slice(0, 200)) {
       const abs = offset + Number(d.number);
       list.appendChild(h('.ep-row', { onClick: () => lib ? playEpisode(lib, abs) : addThenPlay(item, abs) },
-        d.still ? h('img', { src: d.still, loading: 'lazy', alt: '' }) : h('.skeleton', { style: { width: '96px', height: '54px', animation: 'none' } }),
+        d.still ? h('img', { src: d.still, loading: 'lazy', alt: '' }) : h('.noimg'),
         h('div', h('.t', `${abs}. ${d.title || 'Episode ' + abs}`), h('.d', d.overview || [d.aired ? `Aired ${String(d.aired).slice(0, 10)}` : '', d.filler ? 'Filler' : '', d.recap ? 'Recap' : ''].filter(Boolean).join(' · '))),
-        h('span.muted.small', lib?.episodes.find(e => Number(e.num) === abs)?.path ? 'linked' : '')));
+        (() => { const l = lib?.episodes.find(e => Number(e.num) === abs)?.path; return h('span.state', { class: l ? 'linked' : '' }, l ? 'Linked' : (lib ? 'Not linked' : '')); })()));
     }
     wrap.appendChild(list);
   }

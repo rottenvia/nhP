@@ -316,7 +316,7 @@ class Assistant:
         if name == "merger_scan":
             data = self._parse(api.merger_scan())
             pairs = data.get("matched") or data.get("pairs") or []
-            return {"status": data.get("status"), "pairs": [{"episode": p.get("episode"), "raw": os.path.basename(p.get("raw") or ""), "dub": os.path.basename(p.get("dub") or "")} for p in pairs[:40]], "message": data.get("message")}
+            return {"status": data.get("status"), "raw_files": len(data.get("raw") or []), "dub_files": len(data.get("dub") or []), "pairs": [{"season": (p.get("raw") or {}).get("season"), "episode": (p.get("raw") or {}).get("episode"), "raw": (p.get("raw") or {}).get("name"), "dub": (p.get("dub") or {}).get("name")} for p in pairs[:40]], "message": data.get("message")}
         if name == "merger_merge_all":
             def worker():
                 try:

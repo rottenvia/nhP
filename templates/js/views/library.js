@@ -1,4 +1,4 @@
-import { h, icon, clear, renderList, debounce, append } from '../core/dom.js';
+import { h, icon, clear, renderList, debounce, append, smile } from '../core/dom.js';
 import { store } from '../core/store.js';
 import { router } from '../core/router.js';
 import { mediaCard, searchLibrary } from '../features/libraryOps.js';
@@ -38,7 +38,7 @@ export const libraryView = {
       });
       renderList(grid, items, { key: i => `${i.category}:${i.id}`, create: i => mediaCard(i), update: (el, i) => { const fresh = mediaCard(i); el.replaceChildren(...fresh.childNodes); } });
       empty.hidden = items.length > 0;
-      if (!items.length) { clear(empty); append(empty, [h('.face', ':3'), h('h3', query ? 'Nothing matches' : 'Library is empty'), h('p', query ? 'Try another name.' : 'Add titles from the catalog.'), query ? null : h('button.btn.primary', { onClick: () => router.go('catalog') }, 'Browse catalog')]); }
+      if (!items.length) { clear(empty); append(empty, [smile(), h('h3', query ? 'Nothing matches' : 'Library is empty'), h('p', query ? 'Try another name.' : 'Add titles from the catalog.'), query ? null : h('button.btn.primary', { onClick: () => router.go('catalog') }, 'Browse catalog')]); }
     };
     render();
     store.on('library', render); store.on('progress', render);

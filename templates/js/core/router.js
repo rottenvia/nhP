@@ -18,7 +18,7 @@ export const router = {
     const rail = $('#rail-items');
     for (const v of views.values()) {
       if (!v.rail) continue;
-      const btn = h('button.rail-item', { dataset: { nav: v.id }, title: v.title }, icon(v.icon, 21), h('span', v.title));
+      const btn = h('button.rail-item', { dataset: { nav: v.id }, title: v.title }, h('.pill', icon(v.icon, 22)), h('span', v.title));
       btn.addEventListener('click', () => this.go(v.id));
       rail.appendChild(btn);
       railButtons.set(v.id, btn);

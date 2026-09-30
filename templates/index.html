@@ -12,9 +12,9 @@
 html,body{margin:0;height:100%;background:#07070c;overflow:hidden}
 #boot{position:fixed;inset:0;z-index:9000;display:flex;align-items:center;justify-content:center;background:radial-gradient(60% 60% at 50% 40%,rgba(124,92,252,.16),transparent 70%),#07070c;transition:opacity .45s ease,visibility .45s;font-family:"Inter","Segoe UI Variable Text","Segoe UI",system-ui,sans-serif;color:#eef;}
 #boot.is-hidden{opacity:0;visibility:hidden;pointer-events:none}
-#boot .face{position:relative;font-size:76px;font-weight:900;letter-spacing:-.06em;line-height:1;color:#fff;display:inline-flex;align-items:baseline;filter:drop-shadow(0 0 22px rgba(124,92,252,.55));animation:bootBob 2.4s ease-in-out infinite}
-#boot .face .eyes{display:inline-block;transform-origin:50% 50%;animation:bootBlink 3.6s ease-in-out infinite}
-#boot .face .mouth{display:inline-block;color:#a68cff}
+#boot .face{width:96px;height:96px;border-radius:30px;background:linear-gradient(145deg,#9d82ff,#6a4cf0);display:flex;align-items:center;justify-content:center;box-shadow:0 18px 50px rgba(124,92,252,.45);animation:bootBob 2.6s ease-in-out infinite}
+#boot .face svg{width:60px;height:60px;fill:none;stroke:#fff;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
+#boot .face .eyes{transform-origin:50% 42%;animation:bootBlink 3.6s ease-in-out infinite}
 #boot .brand{margin-top:22px;font-size:13px;letter-spacing:.28em;text-transform:uppercase;color:rgba(255,255,255,.55);font-weight:600}
 #boot .status{margin-top:10px;font-size:13px;color:rgba(255,255,255,.7);min-height:18px}
 #boot .bar{width:220px;height:3px;margin:18px auto 0;border-radius:99px;background:rgba(255,255,255,.08);overflow:hidden}
@@ -22,17 +22,17 @@ html,body{margin:0;height:100%;background:#07070c;overflow:hidden}
 #boot .card{text-align:center}
 #boot .error{margin-top:14px;font-size:12px;color:#ff9a9a;max-width:360px;display:none}
 #boot button{margin-top:14px;display:none;background:#7c5cfc;color:#fff;border:0;border-radius:10px;padding:8px 16px;font:600 13px inherit;cursor:pointer}
-@keyframes bootBob{0%,100%{transform:translateY(0) rotate(-2deg)}50%{transform:translateY(-6px) rotate(2deg)}}
+@keyframes bootBob{0%,100%{transform:translateY(0) rotate(-3deg)}50%{transform:translateY(-7px) rotate(3deg)}}
 @keyframes bootBlink{0%,92%,100%{transform:scaleY(1)}95%{transform:scaleY(.12)}}
 @media (prefers-reduced-motion:reduce){#boot .face,#boot .face .eyes{animation:none}}
 </style>
-<link rel="stylesheet" href="/static/css/app.css?v=2.0.0">
+<link rel="stylesheet" href="/static/css/app.css?v=2.1.0">
 </head>
 <body>
 
 <div id="boot" aria-live="polite">
   <div class="card">
-    <div class="face"><span class="eyes">:</span><span class="mouth">3</span></div>
+    <div class="face"><svg viewBox="0 0 24 24"><path d="M12.1 2.3 C17.3 2.1, 21.8 6.5, 21.9 11.9 C22.0 17.3, 17.1 21.9, 11.8 21.7 C6.4 21.5, 2.2 16.8, 2.3 11.4 C2.4 6.1, 6.9 2.5, 12.1 2.3"/><g class="eyes"><path d="M8.5 9.5 A 0.8 1 0 1 1 8.5 9.4" fill="currentColor"/><path d="M15.2 10.2 A 1 0.8 0 1 1 15.2 10.1" fill="currentColor"/></g><path d="M7.5 14.5 C9.2 17.2, 14.8 16.8, 16.5 13.8"/></svg></div>
     <div class="brand">Modern Player</div>
     <div class="status" id="boot-status">Starting…</div>
     <div class="bar"><i id="boot-bar"></i></div>
@@ -43,15 +43,15 @@ html,body{margin:0;height:100%;background:#07070c;overflow:hidden}
 
 <div id="app" class="app" hidden>
   <nav class="rail" id="rail" aria-label="Main">
-    <button class="rail-logo" data-nav="home" title="Home"><span class="eyes">:</span><span>3</span></button>
+    <button class="rail-logo logo" data-nav="home" title="Home"><svg viewBox="0 0 24 24"><path d="M12.1 2.3 C17.3 2.1, 21.8 6.5, 21.9 11.9 C22.0 17.3, 17.1 21.9, 11.8 21.7 C6.4 21.5, 2.2 16.8, 2.3 11.4 C2.4 6.1, 6.9 2.5, 12.1 2.3"/><g class="eyes"><path d="M8.5 9.5 A 0.8 1 0 1 1 8.5 9.4" fill="currentColor"/><path d="M15.2 10.2 A 1 0.8 0 1 1 15.2 10.1" fill="currentColor"/></g><path d="M7.5 14.5 C9.2 17.2, 14.8 16.8, 16.5 13.8"/></svg></button>
     <div class="rail-items" id="rail-items"></div>
     <div class="rail-bottom">
       <button class="rail-item" id="rail-assistant" title="Assistant (Ctrl+K)">
-        <svg viewBox="0 0 24 24"><path d="M12 3c4.97 0 9 3.58 9 8s-4.03 8-9 8c-.9 0-1.77-.12-2.6-.34L5 21l.9-3.6C4.1 15.9 3 13.6 3 11c0-4.42 4.03-8 9-8z"/></svg>
+        <span class="pill"><svg viewBox="0 0 24 24"><path d="M12 3c4.97 0 9 3.58 9 8s-4.03 8-9 8c-.9 0-1.77-.12-2.6-.34L5 21l.9-3.6C4.1 15.9 3 13.6 3 11c0-4.42 4.03-8 9-8z"/></svg></span>
         <span>Assistant</span>
       </button>
       <button class="rail-item" data-nav="settings" title="Settings">
-        <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg>
+        <span class="pill"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg></span>
         <span>Settings</span>
       </button>
     </div>
@@ -84,8 +84,8 @@ html,body{margin:0;height:100%;background:#07070c;overflow:hidden}
 <div id="modal-root"></div>
 <div id="context-root"></div>
 <div id="toast-root" class="toasts"></div>
-<div id="drop-overlay" class="drop-overlay"><div class="drop-box"><span class="face">:3</span><p>Drop media files to play</p></div></div>
+<div id="drop-overlay" class="drop-overlay"><div class="drop-box"><span class="smile"><svg viewBox="0 0 24 24"><path d="M12.1 2.3 C17.3 2.1, 21.8 6.5, 21.9 11.9 C22.0 17.3, 17.1 21.9, 11.8 21.7 C6.4 21.5, 2.2 16.8, 2.3 11.4 C2.4 6.1, 6.9 2.5, 12.1 2.3"/><g class="eyes"><path d="M8.5 9.5 A 0.8 1 0 1 1 8.5 9.4" fill="currentColor"/><path d="M15.2 10.2 A 1 0.8 0 1 1 15.2 10.1" fill="currentColor"/></g><path d="M7.5 14.5 C9.2 17.2, 14.8 16.8, 16.5 13.8"/></svg></span><p>Drop media files to play</p></div></div>
 
-<script type="module" src="/static/js/main.js?v=2.0.0"></script>
+<script type="module" src="/static/js/main.js?v=2.1.0"></script>
 </body>
 </html>
